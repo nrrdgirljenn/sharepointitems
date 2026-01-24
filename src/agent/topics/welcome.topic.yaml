@@ -1,0 +1,112 @@
+kind: AdaptiveDialog
+modelDescription: This topic welcomes users and helps them get started with their daily project checklist
+beginDialog:
+  kind: OnRecognizedIntent
+  id: main
+  intent:
+    triggerQueries:
+      - Hi
+      - Hello
+      - Hey
+      - Good morning
+      - Start
+      - Begin
+      - Help me with my checklist
+      - Daily tasks
+      - What can you do
+
+  actions:
+    - kind: SendMessage
+      id: welcomeMessage
+      message: |
+        👋 Hello! I'm your Daily Project Checklist Agent.
+
+        I can help you stay organized by pulling tasks from both **Notion** and **Microsoft Planner** into a unified daily checklist.
+
+        Here's what I can do for you:
+        • 📋 **Build your daily checklist** - Aggregate tasks from all your sources
+        • 📝 **View Notion tasks** - See tasks from your Notion databases
+        • 📊 **View Planner tasks** - See tasks from Microsoft Planner
+        • ✅ **Mark tasks complete** - Update task status across platforms
+        • 🔄 **Sync status** - Keep everything in sync
+
+    - kind: Question
+      id: askWhatToDo
+      interruptionPolicy:
+        allowInterruption: true
+      prompt: What would you like to do today?
+      variable: init:Topic.UserChoice
+      entity:
+        kind: EmbeddedEntity
+        definition:
+          kind: ClosedListEntity
+          items:
+            - id: buildChecklist
+              displayName: Build my daily checklist
+            - id: viewNotion
+              displayName: View Notion tasks
+            - id: viewPlanner
+              displayName: View Planner tasks
+            - id: syncStatus
+              displayName: Sync task status
+            - id: help
+              displayName: Learn more about features
+
+    - kind: ConditionGroup
+      id: routeChoice
+      conditions:
+        - id: buildChecklistRoute
+          condition: =Topic.UserChoice = 'buildChecklist'
+          actions:
+            - kind: BeginDialog
+              id: gotoBuildChecklist
+              dialog: build-daily-checklist
+
+        - id: viewNotionRoute
+          condition: =Topic.UserChoice = 'viewNotion'
+          actions:
+            - kind: BeginDialog
+              id: gotoNotion
+              dialog: get-notion-tasks
+
+        - id: viewPlannerRoute
+          condition: =Topic.UserChoice = 'viewPlanner'
+          actions:
+            - kind: BeginDialog
+              id: gotoPlanner
+              dialog: get-planner-tasks
+
+        - id: syncRoute
+          condition: =Topic.UserChoice = 'syncStatus'
+          actions:
+            - kind: BeginDialog
+              id: gotoSync
+              dialog: sync-status
+
+        - id: helpRoute
+          condition: =Topic.UserChoice = 'help'
+          actions:
+            - kind: SendMessage
+              id: helpMessage
+              message: |
+                Here's a detailed overview of my capabilities:
+
+                **🔗 Notion Integration:**
+                - Connect to your Notion workspace
+                - Pull tasks from specified databases
+                - Filter by status, due date, and priority
+                - Update task completion status
+
+                **📊 Planner Integration:**
+                - Connect to Microsoft Planner
+                - View tasks from your plans and buckets
+                - Filter by assignment, due date, and progress
+                - Mark tasks as complete
+
+                **📋 Daily Checklist:**
+                - Combines tasks from both platforms
+                - Smart sorting by priority and due date
+                - Track your daily progress
+                - Get reminders for overdue items
+
+                Would you like to get started?

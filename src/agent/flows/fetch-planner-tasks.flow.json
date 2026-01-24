@@ -1,0 +1,266 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "metadata": {
+      "flowId": "fetch-planner-tasks",
+      "displayName": "Fetch Planner Tasks",
+      "description": "Retrieves tasks from Microsoft Planner for the daily checklist",
+      "author": "Daily Project Checklist Agent",
+      "version": "1.0.0"
+    },
+    "parameters": {
+      "plannerConnection": {
+        "type": "string",
+        "defaultValue": "planner-connection"
+      }
+    },
+    "triggers": {
+      "manual": {
+        "type": "Request",
+        "kind": "PowerVirtualAgents",
+        "inputs": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "planId": {
+                "type": "string",
+                "description": "Planner plan ID to query (optional - will get all user tasks if not specified)"
+              },
+              "filterAssignedToMe": {
+                "type": "boolean",
+                "description": "Only get tasks assigned to current user",
+                "default": true
+              },
+              "includeCompleted": {
+                "type": "boolean",
+                "description": "Include completed tasks",
+                "default": false
+              },
+              "testConnection": {
+                "type": "boolean",
+                "description": "Just test the connection",
+                "default": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "actions": {
+      "Initialize_Variables": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "allTasks",
+              "type": "array",
+              "value": []
+            },
+            {
+              "name": "planName",
+              "type": "string",
+              "value": ""
+            }
+          ]
+        },
+        "runAfter": {}
+      },
+      "Condition_Plan_Specified": {
+        "type": "If",
+        "expression": {
+          "and": [
+            {
+              "not": {
+                "equals": ["@triggerBody()?['planId']", ""]
+              }
+            },
+            {
+              "not": {
+                "equals": ["@triggerBody()?['planId']", null]
+              }
+            }
+          ]
+        },
+        "actions": {
+          "Get_Plan_Details": {
+            "type": "Http",
+            "inputs": {
+              "method": "GET",
+              "uri": "https://graph.microsoft.com/v1.0/planner/plans/@{triggerBody()?['planId']}",
+              "authentication": {
+                "type": "ManagedServiceIdentity",
+                "audience": "https://graph.microsoft.com"
+              }
+            }
+          },
+          "Set_Plan_Name": {
+            "type": "SetVariable",
+            "inputs": {
+              "name": "planName",
+              "value": "@body('Get_Plan_Details')?['title']"
+            },
+            "runAfter": {
+              "Get_Plan_Details": ["Succeeded"]
+            }
+          },
+          "Get_Plan_Tasks": {
+            "type": "Http",
+            "inputs": {
+              "method": "GET",
+              "uri": "https://graph.microsoft.com/v1.0/planner/plans/@{triggerBody()?['planId']}/tasks",
+              "authentication": {
+                "type": "ManagedServiceIdentity",
+                "audience": "https://graph.microsoft.com"
+              }
+            },
+            "runAfter": {
+              "Set_Plan_Name": ["Succeeded"]
+            }
+          },
+          "Get_Plan_Buckets": {
+            "type": "Http",
+            "inputs": {
+              "method": "GET",
+              "uri": "https://graph.microsoft.com/v1.0/planner/plans/@{triggerBody()?['planId']}/buckets",
+              "authentication": {
+                "type": "ManagedServiceIdentity",
+                "audience": "https://graph.microsoft.com"
+              }
+            },
+            "runAfter": {
+              "Set_Plan_Name": ["Succeeded"]
+            }
+          }
+        },
+        "else": {
+          "actions": {
+            "Get_My_Tasks": {
+              "type": "Http",
+              "inputs": {
+                "method": "GET",
+                "uri": "https://graph.microsoft.com/v1.0/me/planner/tasks",
+                "authentication": {
+                  "type": "ManagedServiceIdentity",
+                  "audience": "https://graph.microsoft.com"
+                }
+              }
+            },
+            "Set_Default_Plan_Name": {
+              "type": "SetVariable",
+              "inputs": {
+                "name": "planName",
+                "value": "All Plans"
+              },
+              "runAfter": {
+                "Get_My_Tasks": ["Succeeded"]
+              }
+            }
+          }
+        },
+        "runAfter": {
+          "Initialize_Variables": ["Succeeded"]
+        }
+      },
+      "Filter_Active_Tasks": {
+        "type": "Query",
+        "inputs": {
+          "from": "@coalesce(body('Get_Plan_Tasks')?['value'], body('Get_My_Tasks')?['value'], json('[]'))",
+          "where": "@or(equals(triggerBody()?['includeCompleted'], true), less(item()?['percentComplete'], 100))"
+        },
+        "runAfter": {
+          "Condition_Plan_Specified": ["Succeeded"]
+        }
+      },
+      "Transform_Planner_Tasks": {
+        "type": "Select",
+        "inputs": {
+          "from": "@body('Filter_Active_Tasks')",
+          "select": {
+            "id": "@item()?['id']",
+            "title": "@item()?['title']",
+            "status": "@{if(equals(item()?['percentComplete'], 0), 'Not Started', if(equals(item()?['percentComplete'], 100), 'Completed', 'In Progress'))}",
+            "priority": "@item()?['priority']",
+            "percentComplete": "@item()?['percentComplete']",
+            "dueDate": "@{coalesce(item()?['dueDateTime'], 'No due date')}",
+            "bucketId": "@item()?['bucketId']",
+            "bucketName": "@{coalesce(first(where(coalesce(body('Get_Plan_Buckets')?['value'], json('[]')), equals(item()?['id'], item()?['bucketId'])))?['name'], 'Unknown')}",
+            "planId": "@item()?['planId']",
+            "source": "Planner",
+            "createdDateTime": "@item()?['createdDateTime']",
+            "assignments": "@item()?['assignments']"
+          }
+        },
+        "runAfter": {
+          "Filter_Active_Tasks": ["Succeeded"]
+        }
+      },
+      "Sort_By_Priority_And_Due": {
+        "type": "Query",
+        "inputs": {
+          "from": "@body('Transform_Planner_Tasks')",
+          "orderBy": ["priority asc", "dueDate asc"]
+        },
+        "runAfter": {
+          "Transform_Planner_Tasks": ["Succeeded"]
+        }
+      },
+      "Success_Response": {
+        "type": "Response",
+        "kind": "PowerVirtualAgents",
+        "inputs": {
+          "statusCode": 200,
+          "body": {
+            "plannerTasks": "@body('Sort_By_Priority_And_Due')",
+            "taskCount": "@length(body('Sort_By_Priority_And_Due'))",
+            "planName": "@variables('planName')",
+            "errorMessage": null,
+            "lastSync": "@utcNow()"
+          }
+        },
+        "runAfter": {
+          "Sort_By_Priority_And_Due": ["Succeeded"]
+        }
+      },
+      "Error_Response": {
+        "type": "Response",
+        "kind": "PowerVirtualAgents",
+        "inputs": {
+          "statusCode": 200,
+          "body": {
+            "plannerTasks": [],
+            "taskCount": 0,
+            "planName": "",
+            "errorMessage": "Failed to fetch tasks from Planner. Please check your connection and permissions.",
+            "lastSync": null
+          }
+        },
+        "runAfter": {
+          "Condition_Plan_Specified": ["Failed", "TimedOut"]
+        }
+      }
+    },
+    "outputs": {
+      "plannerTasks": {
+        "type": "array",
+        "description": "Array of tasks from Planner"
+      },
+      "taskCount": {
+        "type": "integer",
+        "description": "Number of tasks retrieved"
+      },
+      "planName": {
+        "type": "string",
+        "description": "Name of the plan"
+      },
+      "errorMessage": {
+        "type": "string",
+        "description": "Error message if any"
+      },
+      "lastSync": {
+        "type": "string",
+        "description": "Timestamp of last sync"
+      }
+    }
+  }
+}

@@ -1,0 +1,264 @@
+kind: AdaptiveDialog
+modelDescription: This topic builds a unified daily checklist by aggregating tasks from Notion and Planner
+beginDialog:
+  kind: OnRecognizedIntent
+  id: main
+  intent:
+    triggerQueries:
+      - Build my daily checklist
+      - Create daily checklist
+      - Show my checklist
+      - What do I need to do today
+      - Today's tasks
+      - Daily tasks
+      - My checklist
+      - Build checklist
+      - Aggregate my tasks
+      - Combine tasks
+
+  actions:
+    - kind: SendMessage
+      id: startMessage
+      message: "📋 Building your daily project checklist..."
+
+    - kind: SetVariable
+      id: initChecklist
+      variable: Topic.DailyChecklist
+      value: =[]
+
+    - kind: SetVariable
+      id: initTotalCount
+      variable: Topic.TotalTaskCount
+      value: =0
+
+    # Fetch from Notion
+    - kind: SendMessage
+      id: fetchNotionMsg
+      message: "🔗 Connecting to Notion..."
+
+    - kind: InvokeFlowAction
+      id: fetchNotion
+      flowId: fetch-notion-tasks
+      input:
+        binding:
+          databaseId: =System.User.NotionDatabaseId
+          filterStatus: "active"
+          includeDueToday: true
+      output:
+        binding:
+          notionTasks: Topic.NotionTasks
+          notionCount: Topic.NotionCount
+          notionError: Topic.NotionError
+
+    # Fetch from Planner
+    - kind: SendMessage
+      id: fetchPlannerMsg
+      message: "🔗 Connecting to Microsoft Planner..."
+
+    - kind: InvokeFlowAction
+      id: fetchPlanner
+      flowId: fetch-planner-tasks
+      input:
+        binding:
+          planId: =System.User.PlannerPlanId
+          filterAssignedToMe: true
+          includeCompleted: false
+      output:
+        binding:
+          plannerTasks: Topic.PlannerTasks
+          plannerCount: Topic.PlannerCount
+          plannerError: Topic.PlannerError
+
+    # Process and combine results
+    - kind: SetVariable
+      id: combineChecklists
+      variable: Topic.DailyChecklist
+      value: =Concat(Topic.NotionTasks, Topic.PlannerTasks)
+
+    - kind: SetVariable
+      id: calculateTotal
+      variable: Topic.TotalTaskCount
+      value: =Topic.NotionCount + Topic.PlannerCount
+
+    # Display connection status
+    - kind: SendMessage
+      id: statusSummary
+      message: |
+        **Connection Status:**
+        {If(IsBlank(Topic.NotionError), "✅ Notion: " & Topic.NotionCount & " tasks", "⚠️ Notion: " & Topic.NotionError)}
+        {If(IsBlank(Topic.PlannerError), "✅ Planner: " & Topic.PlannerCount & " tasks", "⚠️ Planner: " & Topic.PlannerError)}
+
+    - kind: ConditionGroup
+      id: checkTasks
+      conditions:
+        - id: noTasks
+          condition: =Topic.TotalTaskCount = 0
+          actions:
+            - kind: SendMessage
+              id: noTasksMessage
+              message: |
+                🎉 **Congratulations!** You have no pending tasks for today!
+
+                Your checklist is clear. Enjoy your day or use this time to:
+                • Plan ahead for upcoming projects
+                • Review completed work
+                • Take a well-deserved break
+
+        - id: hasTasks
+          condition: =Topic.TotalTaskCount > 0
+          actions:
+            - kind: SendMessage
+              id: checklistHeader
+              message: |
+                ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                📋 **YOUR DAILY CHECKLIST** - {Text(Now(), "dddd, MMMM d")}
+                ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                Total tasks: **{Topic.TotalTaskCount}**
+
+            # Display High Priority Tasks
+            - kind: SendMessage
+              id: highPriorityHeader
+              message: "🔴 **HIGH PRIORITY**"
+
+            - kind: ForEachAction
+              id: loopHighPriority
+              itemsSource: =Filter(Topic.DailyChecklist, priority = "high" Or priority = 1)
+              itemVariable: Topic.Task
+              actions:
+                - kind: SendMessage
+                  id: displayHighTask
+                  message: "  ☐ {Topic.Task.title} ({Topic.Task.source}) - Due: {Topic.Task.dueDate}"
+
+            # Display Medium Priority Tasks
+            - kind: SendMessage
+              id: mediumPriorityHeader
+              message: "🟡 **MEDIUM PRIORITY**"
+
+            - kind: ForEachAction
+              id: loopMediumPriority
+              itemsSource: =Filter(Topic.DailyChecklist, priority = "medium" Or priority = 3)
+              itemVariable: Topic.Task
+              actions:
+                - kind: SendMessage
+                  id: displayMediumTask
+                  message: "  ☐ {Topic.Task.title} ({Topic.Task.source}) - Due: {Topic.Task.dueDate}"
+
+            # Display Low Priority Tasks
+            - kind: SendMessage
+              id: lowPriorityHeader
+              message: "🟢 **NORMAL PRIORITY**"
+
+            - kind: ForEachAction
+              id: loopLowPriority
+              itemsSource: =Filter(Topic.DailyChecklist, priority = "low" Or priority = 5 Or IsBlank(priority))
+              itemVariable: Topic.Task
+              actions:
+                - kind: SendMessage
+                  id: displayLowTask
+                  message: "  ☐ {Topic.Task.title} ({Topic.Task.source}) - Due: {Topic.Task.dueDate}"
+
+            - kind: SendMessage
+              id: checklistFooter
+              message: "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+            # Save to global for reference
+            - kind: SetVariable
+              id: saveChecklist
+              variable: Global.CurrentDailyChecklist
+              value: =Topic.DailyChecklist
+
+            - kind: Question
+              id: askNextAction
+              prompt: What would you like to do?
+              variable: init:Topic.NextAction
+              entity:
+                kind: EmbeddedEntity
+                definition:
+                  kind: ClosedListEntity
+                  items:
+                    - id: markComplete
+                      displayName: Mark a task as complete
+                    - id: viewBySource
+                      displayName: View tasks by source
+                    - id: refresh
+                      displayName: Refresh checklist
+                    - id: export
+                      displayName: Export checklist
+                    - id: done
+                      displayName: I'm all set
+
+            - kind: ConditionGroup
+              id: handleNextAction
+              conditions:
+                - id: markCompleteAction
+                  condition: =Topic.NextAction = 'markComplete'
+                  actions:
+                    - kind: BeginDialog
+                      id: gotoManage
+                      dialog: manage-checklist
+
+                - id: viewBySourceAction
+                  condition: =Topic.NextAction = 'viewBySource'
+                  actions:
+                    - kind: Question
+                      id: selectSource
+                      prompt: Which source would you like to view?
+                      variable: init:Topic.SourceChoice
+                      entity:
+                        kind: EmbeddedEntity
+                        definition:
+                          kind: ClosedListEntity
+                          items:
+                            - id: notion
+                              displayName: Notion tasks only
+                            - id: planner
+                              displayName: Planner tasks only
+
+                    - kind: ConditionGroup
+                      id: routeToSource
+                      conditions:
+                        - id: notionChoice
+                          condition: =Topic.SourceChoice = 'notion'
+                          actions:
+                            - kind: BeginDialog
+                              id: gotoNotionView
+                              dialog: get-notion-tasks
+                        - id: plannerChoice
+                          condition: =Topic.SourceChoice = 'planner'
+                          actions:
+                            - kind: BeginDialog
+                              id: gotoPlannerView
+                              dialog: get-planner-tasks
+
+                - id: refreshAction
+                  condition: =Topic.NextAction = 'refresh'
+                  actions:
+                    - kind: GotoAction
+                      id: refreshChecklist
+                      actionId: startMessage
+
+                - id: exportAction
+                  condition: =Topic.NextAction = 'export'
+                  actions:
+                    - kind: SendMessage
+                      id: exportMessage
+                      message: |
+                        📤 **Exporting your checklist...**
+
+                        Here's your checklist in a copyable format:
+
+                        ```
+                        Daily Checklist - {Text(Now(), "yyyy-MM-dd")}
+                        ================================
+                        {ForAll(Topic.DailyChecklist, "[ ] " & title & " (" & source & ")")}
+                        ```
+
+                        You can copy this to your notes or share it with your team!
+
+outputParameters:
+  - name: dailyChecklist
+    type: Table
+    description: The combined daily checklist
+  - name: totalCount
+    type: Number
+    description: Total number of tasks

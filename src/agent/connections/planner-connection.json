@@ -1,0 +1,121 @@
+{
+  "connectionReference": {
+    "id": "planner-connection",
+    "displayName": "Microsoft Planner Connection",
+    "description": "Connection to Microsoft Planner via Microsoft Graph API for retrieving and updating tasks",
+    "connectorId": "/providers/Microsoft.PowerApps/apis/shared_planner",
+    "connectionType": "microsoft365",
+    "tier": "standard",
+    "authentication": {
+      "type": "oauth2",
+      "provider": "AzureActiveDirectory",
+      "scopes": [
+        "Tasks.Read",
+        "Tasks.ReadWrite",
+        "Group.Read.All",
+        "User.Read"
+      ]
+    },
+    "baseUrl": "https://graph.microsoft.com/v1.0",
+    "configuration": {
+      "apiVersion": "v1.0",
+      "defaultHeaders": {
+        "Content-Type": "application/json"
+      }
+    },
+    "endpoints": {
+      "listPlans": {
+        "method": "GET",
+        "path": "/me/planner/plans",
+        "description": "List all plans the user has access to"
+      },
+      "getPlan": {
+        "method": "GET",
+        "path": "/planner/plans/{plan_id}",
+        "description": "Get details of a specific plan"
+      },
+      "listBuckets": {
+        "method": "GET",
+        "path": "/planner/plans/{plan_id}/buckets",
+        "description": "List all buckets in a plan"
+      },
+      "listTasks": {
+        "method": "GET",
+        "path": "/planner/plans/{plan_id}/tasks",
+        "description": "List all tasks in a plan"
+      },
+      "getMyTasks": {
+        "method": "GET",
+        "path": "/me/planner/tasks",
+        "description": "Get all tasks assigned to the current user"
+      },
+      "getTask": {
+        "method": "GET",
+        "path": "/planner/tasks/{task_id}",
+        "description": "Get details of a specific task"
+      },
+      "updateTask": {
+        "method": "PATCH",
+        "path": "/planner/tasks/{task_id}",
+        "description": "Update a task's properties"
+      },
+      "getTaskDetails": {
+        "method": "GET",
+        "path": "/planner/tasks/{task_id}/details",
+        "description": "Get additional details of a task including description and checklist"
+      }
+    },
+    "parameters": {
+      "planId": {
+        "type": "string",
+        "displayName": "Default Plan ID",
+        "description": "The ID of your default Planner plan",
+        "required": false
+      },
+      "groupId": {
+        "type": "string",
+        "displayName": "Group ID",
+        "description": "The Microsoft 365 group ID that owns the plan",
+        "required": false
+      },
+      "filterAssignedToMe": {
+        "type": "boolean",
+        "displayName": "Filter Assigned to Me",
+        "description": "Only show tasks assigned to the current user",
+        "default": true
+      },
+      "includeCompleted": {
+        "type": "boolean",
+        "displayName": "Include Completed Tasks",
+        "description": "Whether to include completed tasks in results",
+        "default": false
+      }
+    },
+    "taskStatusMapping": {
+      "notStarted": {
+        "percentComplete": 0,
+        "displayName": "Not Started"
+      },
+      "inProgress": {
+        "percentComplete": 50,
+        "displayName": "In Progress"
+      },
+      "completed": {
+        "percentComplete": 100,
+        "displayName": "Completed"
+      }
+    },
+    "priorityMapping": {
+      "1": "Urgent",
+      "3": "Important",
+      "5": "Medium",
+      "9": "Low"
+    },
+    "setupInstructions": [
+      "1. Sign in with your Microsoft 365 work or school account",
+      "2. Authorize the Planner connection when prompted",
+      "3. Select the plan you want to connect to (optional - you can view all plans)",
+      "4. The connection will automatically use your Microsoft 365 credentials"
+    ]
+  }
+}

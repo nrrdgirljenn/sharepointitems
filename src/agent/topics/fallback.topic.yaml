@@ -1,0 +1,108 @@
+kind: AdaptiveDialog
+modelDescription: This topic handles unrecognized user input and provides helpful guidance
+beginDialog:
+  kind: OnUnknownIntent
+  id: main
+
+  actions:
+    - kind: SendMessage
+      id: fallbackMessage
+      message: |
+        I'm not sure I understood that. Let me help you with what I can do.
+
+        **I can help you with:**
+        • 📋 Building your daily checklist from Notion and Planner
+        • 📝 Viewing your Notion tasks
+        • 📊 Viewing your Planner tasks
+        • ✅ Marking tasks as complete
+        • 🔄 Checking connection status
+
+    - kind: Question
+      id: askIntent
+      prompt: What would you like to do?
+      variable: init:Topic.UserIntent
+      entity:
+        kind: EmbeddedEntity
+        definition:
+          kind: ClosedListEntity
+          items:
+            - id: buildChecklist
+              displayName: Build my daily checklist
+            - id: viewNotion
+              displayName: View Notion tasks
+            - id: viewPlanner
+              displayName: View Planner tasks
+            - id: markComplete
+              displayName: Mark a task complete
+            - id: checkStatus
+              displayName: Check connection status
+            - id: help
+              displayName: Get more help
+
+    - kind: ConditionGroup
+      id: routeIntent
+      conditions:
+        - id: buildRoute
+          condition: =Topic.UserIntent = 'buildChecklist'
+          actions:
+            - kind: BeginDialog
+              id: gotoBuild
+              dialog: build-daily-checklist
+
+        - id: notionRoute
+          condition: =Topic.UserIntent = 'viewNotion'
+          actions:
+            - kind: BeginDialog
+              id: gotoNotion
+              dialog: get-notion-tasks
+
+        - id: plannerRoute
+          condition: =Topic.UserIntent = 'viewPlanner'
+          actions:
+            - kind: BeginDialog
+              id: gotoPlanner
+              dialog: get-planner-tasks
+
+        - id: completeRoute
+          condition: =Topic.UserIntent = 'markComplete'
+          actions:
+            - kind: BeginDialog
+              id: gotoManage
+              dialog: manage-checklist
+
+        - id: statusRoute
+          condition: =Topic.UserIntent = 'checkStatus'
+          actions:
+            - kind: BeginDialog
+              id: gotoStatus
+              dialog: sync-status
+
+        - id: helpRoute
+          condition: =Topic.UserIntent = 'help'
+          actions:
+            - kind: SendMessage
+              id: helpMessage
+              message: |
+                **Daily Project Checklist Agent - Help**
+
+                This agent helps you manage your daily tasks by connecting to:
+
+                **🔗 Notion**
+                Connect your Notion workspace to pull tasks from your databases.
+                Supports filtering by status, due date, and priority.
+
+                **📊 Microsoft Planner**
+                Connect to your Microsoft 365 Planner plans and buckets.
+                View and manage tasks assigned to you.
+
+                **📋 Daily Checklist**
+                Combines tasks from both sources into one unified view.
+                Sorted by priority with visual indicators.
+
+                **Need to set up connections?**
+                Ask me to "check connection status" to verify your integrations.
+
+                **Tips:**
+                • Say "build my checklist" to get started
+                • Say "mark complete" to update a task
+                • Say "sync status" to check connections

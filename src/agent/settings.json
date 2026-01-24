@@ -1,0 +1,48 @@
+{
+  "agentSettings": {
+    "name": "DailyProjectChecklistAgent",
+    "schemaVersion": "1.0",
+    "conversationSettings": {
+      "enableSmallTalk": true,
+      "enableGenerativeAnswers": true,
+      "responseStyle": "friendly",
+      "maxTurnsPerConversation": 50
+    },
+    "securitySettings": {
+      "requireAuthentication": true,
+      "allowedAuthenticationProviders": ["AzureAD"],
+      "dataResidency": "default"
+    },
+    "integrationSettings": {
+      "notion": {
+        "enabled": true,
+        "syncInterval": "realtime",
+        "defaultDatabase": "",
+        "taskStatusMapping": {
+          "notStarted": ["Not started", "To Do", "Backlog"],
+          "inProgress": ["In progress", "Doing", "Working"],
+          "completed": ["Done", "Complete", "Finished"]
+        }
+      },
+      "planner": {
+        "enabled": true,
+        "syncInterval": "realtime",
+        "defaultPlanId": "",
+        "includeBuckets": true,
+        "taskStatusMapping": {
+          "notStarted": "notStarted",
+          "inProgress": "inProgress",
+          "completed": "completed"
+        }
+      }
+    },
+    "checklistSettings": {
+      "defaultView": "combined",
+      "sortOrder": "priority",
+      "showCompletedTasks": false,
+      "groupBySource": true,
+      "dailyResetTime": "00:00",
+      "timezone": "UTC"
+    }
+  }
+}

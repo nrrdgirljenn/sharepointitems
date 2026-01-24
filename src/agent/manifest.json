@@ -1,0 +1,52 @@
+{
+  "$schema": "https://schema.copilotstudio.microsoft.com/agent/v1.0/manifest.schema.json",
+  "name": "DailyProjectChecklistAgent",
+  "displayName": "Daily Project Checklist Agent",
+  "description": "An intelligent agent that helps you build and manage your daily project checklist by aggregating tasks from Notion and Microsoft Planner",
+  "version": "1.0.0",
+  "author": "nrrdgirljenn",
+  "icon": "checklist-icon.png",
+  "primaryLanguage": "en-US",
+  "supportedLanguages": ["en-US"],
+  "capabilities": {
+    "conversational": true,
+    "generativeAI": true,
+    "orchestration": true
+  },
+  "settings": {
+    "enableGenerativeAnswers": true,
+    "enableGenerativeActions": true,
+    "fallbackBehavior": "escalate",
+    "conversationBoostEnabled": true
+  },
+  "connections": [
+    {
+      "id": "notion-connection",
+      "type": "custom",
+      "displayName": "Notion API Connection"
+    },
+    {
+      "id": "planner-connection",
+      "type": "microsoft365",
+      "displayName": "Microsoft Planner Connection"
+    }
+  ],
+  "topics": [
+    "topics/welcome.topic.yaml",
+    "topics/get-notion-tasks.topic.yaml",
+    "topics/get-planner-tasks.topic.yaml",
+    "topics/build-daily-checklist.topic.yaml",
+    "topics/manage-checklist.topic.yaml",
+    "topics/sync-status.topic.yaml"
+  ],
+  "flows": [
+    "flows/fetch-notion-tasks.flow.json",
+    "flows/fetch-planner-tasks.flow.json",
+    "flows/update-task-status.flow.json"
+  ],
+  "knowledgeSources": [],
+  "triggers": {
+    "conversationStart": "topics/welcome.topic.yaml",
+    "unknownIntent": "topics/fallback.topic.yaml"
+  }
+}

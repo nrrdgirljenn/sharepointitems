@@ -1,0 +1,171 @@
+kind: AdaptiveDialog
+modelDescription: This topic checks and displays the sync status of all connected services
+beginDialog:
+  kind: OnRecognizedIntent
+  id: main
+  intent:
+    triggerQueries:
+      - Sync status
+      - Check connection
+      - Connection status
+      - Are services connected
+      - Check integrations
+      - Refresh connections
+      - Test connections
+
+  actions:
+    - kind: SendMessage
+      id: checkingMessage
+      message: "🔄 Checking connection status..."
+
+    # Check Notion Connection
+    - kind: InvokeFlowAction
+      id: checkNotion
+      flowId: fetch-notion-tasks
+      input:
+        binding:
+          databaseId: =System.User.NotionDatabaseId
+          testConnection: true
+      output:
+        binding:
+          notionConnected: Topic.NotionConnected
+          notionError: Topic.NotionError
+          notionLastSync: Topic.NotionLastSync
+
+    # Check Planner Connection
+    - kind: InvokeFlowAction
+      id: checkPlanner
+      flowId: fetch-planner-tasks
+      input:
+        binding:
+          planId: =System.User.PlannerPlanId
+          testConnection: true
+      output:
+        binding:
+          plannerConnected: Topic.PlannerConnected
+          plannerError: Topic.PlannerError
+          plannerLastSync: Topic.PlannerLastSync
+
+    - kind: SendMessage
+      id: statusReport
+      message: |
+        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        🔗 **CONNECTION STATUS**
+        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+        **Notion**
+        Status: {If(Topic.NotionConnected, "✅ Connected", "❌ Disconnected")}
+        {If(!IsBlank(Topic.NotionError), "Error: " & Topic.NotionError, "")}
+        {If(Topic.NotionConnected, "Last sync: " & Topic.NotionLastSync, "")}
+
+        **Microsoft Planner**
+        Status: {If(Topic.PlannerConnected, "✅ Connected", "❌ Disconnected")}
+        {If(!IsBlank(Topic.PlannerError), "Error: " & Topic.PlannerError, "")}
+        {If(Topic.PlannerConnected, "Last sync: " & Topic.PlannerLastSync, "")}
+
+        ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    - kind: ConditionGroup
+      id: checkIssues
+      conditions:
+        - id: hasIssues
+          condition: =Topic.NotionConnected = false Or Topic.PlannerConnected = false
+          actions:
+            - kind: Question
+              id: askFix
+              prompt: Would you like help fixing the connection issues?
+              variable: init:Topic.FixChoice
+              entity:
+                kind: EmbeddedEntity
+                definition:
+                  kind: BooleanEntity
+
+            - kind: ConditionGroup
+              id: handleFix
+              conditions:
+                - id: wantsFix
+                  condition: =Topic.FixChoice = true
+                  actions:
+                    - kind: ConditionGroup
+                      id: determineIssue
+                      conditions:
+                        - id: notionIssue
+                          condition: =Topic.NotionConnected = false
+                          actions:
+                            - kind: SendMessage
+                              id: notionHelp
+                              message: |
+                                **To fix your Notion connection:**
+
+                                1. Go to Notion Settings → Integrations
+                                2. Find or create an integration for this agent
+                                3. Copy the integration token
+                                4. Make sure the integration has access to your task database
+                                5. Update the connection in Copilot Studio
+
+                                📖 [Notion Integration Guide](https://developers.notion.com/docs/getting-started)
+
+                        - id: plannerIssue
+                          condition: =Topic.PlannerConnected = false
+                          actions:
+                            - kind: SendMessage
+                              id: plannerHelp
+                              message: |
+                                **To fix your Planner connection:**
+
+                                1. Ensure you're signed in with your Microsoft 365 account
+                                2. Verify you have access to the Planner plan
+                                3. Re-authorize the Microsoft Planner connection
+                                4. Check that the Plan ID is correct in your settings
+
+                                📖 Need help? Contact your IT administrator.
+
+        - id: allGood
+          condition: =Topic.NotionConnected = true And Topic.PlannerConnected = true
+          actions:
+            - kind: SendMessage
+              id: allGoodMsg
+              message: |
+                🎉 All connections are healthy!
+
+                Your agent is ready to aggregate tasks from both Notion and Planner.
+
+    - kind: Question
+      id: askNext
+      prompt: What would you like to do next?
+      variable: init:Topic.NextChoice
+      entity:
+        kind: EmbeddedEntity
+        definition:
+          kind: ClosedListEntity
+          items:
+            - id: buildChecklist
+              displayName: Build my daily checklist
+            - id: refreshConnections
+              displayName: Refresh connections
+            - id: mainMenu
+              displayName: Go to main menu
+
+    - kind: ConditionGroup
+      id: handleNext
+      conditions:
+        - id: buildChoice
+          condition: =Topic.NextChoice = 'buildChecklist'
+          actions:
+            - kind: BeginDialog
+              id: gotoBuild
+              dialog: build-daily-checklist
+
+        - id: refreshChoice
+          condition: =Topic.NextChoice = 'refreshConnections'
+          actions:
+            - kind: GotoAction
+              id: refreshAgain
+              actionId: checkingMessage
+
+        - id: menuChoice
+          condition: =Topic.NextChoice = 'mainMenu'
+          actions:
+            - kind: BeginDialog
+              id: gotoWelcome
+              dialog: welcome

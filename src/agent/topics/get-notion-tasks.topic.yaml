@@ -1,0 +1,180 @@
+kind: AdaptiveDialog
+modelDescription: This topic retrieves and displays tasks from Notion databases
+beginDialog:
+  kind: OnRecognizedIntent
+  id: main
+  intent:
+    triggerQueries:
+      - Show my Notion tasks
+      - Get Notion tasks
+      - View Notion items
+      - What's in Notion
+      - Notion checklist
+      - Tasks from Notion
+      - Pull Notion data
+
+  actions:
+    - kind: SendMessage
+      id: fetchingMessage
+      message: "🔍 Fetching your tasks from Notion..."
+
+    - kind: InvokeFlowAction
+      id: callNotionFlow
+      flowId: fetch-notion-tasks
+      input:
+        binding:
+          databaseId: =System.User.NotionDatabaseId
+          filterStatus: "active"
+          includeDueToday: true
+      output:
+        binding:
+          notionTasks: Topic.NotionTasks
+          taskCount: Topic.NotionTaskCount
+          errorMessage: Topic.ErrorMessage
+
+    - kind: ConditionGroup
+      id: checkResults
+      conditions:
+        - id: hasError
+          condition: =!IsBlank(Topic.ErrorMessage)
+          actions:
+            - kind: SendMessage
+              id: errorMsg
+              message: |
+                ⚠️ I encountered an issue connecting to Notion: {Topic.ErrorMessage}
+
+                Please make sure:
+                • Your Notion integration is properly connected
+                • The database ID is correct
+                • You have the necessary permissions
+
+            - kind: Question
+              id: askRetry
+              prompt: Would you like me to try again?
+              variable: init:Topic.RetryChoice
+              entity:
+                kind: EmbeddedEntity
+                definition:
+                  kind: BooleanEntity
+
+            - kind: ConditionGroup
+              id: handleRetry
+              conditions:
+                - id: retryYes
+                  condition: =Topic.RetryChoice = true
+                  actions:
+                    - kind: GotoAction
+                      id: retryFetch
+                      actionId: callNotionFlow
+
+        - id: noTasks
+          condition: =Topic.NotionTaskCount = 0
+          actions:
+            - kind: SendMessage
+              id: noTasksMsg
+              message: |
+                ✨ Great news! You don't have any pending tasks in Notion right now.
+
+                Would you like to:
+                • Check your Planner tasks instead
+                • Build your full daily checklist
+                • Go back to the main menu
+
+        - id: hasTasks
+          condition: =Topic.NotionTaskCount > 0
+          actions:
+            - kind: SendMessage
+              id: tasksHeader
+              message: "📝 **Your Notion Tasks** ({Topic.NotionTaskCount} items):"
+
+            - kind: ForEachAction
+              id: loopTasks
+              itemsSource: =Topic.NotionTasks
+              itemVariable: Topic.CurrentTask
+              actions:
+                - kind: SendMessage
+                  id: displayTask
+                  message: |
+                    {If(Topic.CurrentTask.priority = "high", "🔴", If(Topic.CurrentTask.priority = "medium", "🟡", "🟢"))} **{Topic.CurrentTask.title}**
+                    └ Due: {Topic.CurrentTask.dueDate} | Status: {Topic.CurrentTask.status}
+
+            - kind: Question
+              id: askAction
+              prompt: What would you like to do with these tasks?
+              variable: init:Topic.TaskAction
+              entity:
+                kind: EmbeddedEntity
+                definition:
+                  kind: ClosedListEntity
+                  items:
+                    - id: addToChecklist
+                      displayName: Add all to my daily checklist
+                    - id: markComplete
+                      displayName: Mark a task as complete
+                    - id: filterTasks
+                      displayName: Filter tasks
+                    - id: viewPlanner
+                      displayName: Also view Planner tasks
+                    - id: done
+                      displayName: I'm done for now
+
+            - kind: ConditionGroup
+              id: handleTaskAction
+              conditions:
+                - id: addToChecklistAction
+                  condition: =Topic.TaskAction = 'addToChecklist'
+                  actions:
+                    - kind: SetVariable
+                      id: setNotionTasksForChecklist
+                      variable: Global.NotionTasksForChecklist
+                      value: =Topic.NotionTasks
+                    - kind: SendMessage
+                      id: confirmAdd
+                      message: "✅ {Topic.NotionTaskCount} Notion tasks added to your daily checklist!"
+
+                - id: markCompleteAction
+                  condition: =Topic.TaskAction = 'markComplete'
+                  actions:
+                    - kind: BeginDialog
+                      id: gotoMarkComplete
+                      dialog: manage-checklist
+
+                - id: filterAction
+                  condition: =Topic.TaskAction = 'filterTasks'
+                  actions:
+                    - kind: Question
+                      id: askFilter
+                      prompt: How would you like to filter?
+                      variable: init:Topic.FilterType
+                      entity:
+                        kind: EmbeddedEntity
+                        definition:
+                          kind: ClosedListEntity
+                          items:
+                            - id: highPriority
+                              displayName: High priority only
+                            - id: dueToday
+                              displayName: Due today
+                            - id: overdue
+                              displayName: Overdue tasks
+
+                - id: viewPlannerAction
+                  condition: =Topic.TaskAction = 'viewPlanner'
+                  actions:
+                    - kind: BeginDialog
+                      id: gotoPlannerFromNotion
+                      dialog: get-planner-tasks
+
+inputParameters:
+  - name: databaseId
+    type: String
+    description: Optional Notion database ID to query
+    required: false
+
+outputParameters:
+  - name: notionTasks
+    type: Table
+    description: List of tasks retrieved from Notion
+  - name: taskCount
+    type: Number
+    description: Number of tasks retrieved

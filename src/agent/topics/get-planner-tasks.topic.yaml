@@ -1,0 +1,206 @@
+kind: AdaptiveDialog
+modelDescription: This topic retrieves and displays tasks from Microsoft Planner
+beginDialog:
+  kind: OnRecognizedIntent
+  id: main
+  intent:
+    triggerQueries:
+      - Show my Planner tasks
+      - Get Planner tasks
+      - View Planner items
+      - What's in Planner
+      - Microsoft Planner tasks
+      - Tasks from Planner
+      - Pull Planner data
+      - My plan tasks
+
+  actions:
+    - kind: SendMessage
+      id: fetchingMessage
+      message: "🔍 Fetching your tasks from Microsoft Planner..."
+
+    - kind: InvokeFlowAction
+      id: callPlannerFlow
+      flowId: fetch-planner-tasks
+      input:
+        binding:
+          planId: =System.User.PlannerPlanId
+          filterAssignedToMe: true
+          includeCompleted: false
+      output:
+        binding:
+          plannerTasks: Topic.PlannerTasks
+          taskCount: Topic.PlannerTaskCount
+          planName: Topic.PlanName
+          errorMessage: Topic.ErrorMessage
+
+    - kind: ConditionGroup
+      id: checkResults
+      conditions:
+        - id: hasError
+          condition: =!IsBlank(Topic.ErrorMessage)
+          actions:
+            - kind: SendMessage
+              id: errorMsg
+              message: |
+                ⚠️ I encountered an issue connecting to Microsoft Planner: {Topic.ErrorMessage}
+
+                Please make sure:
+                • You're signed in with your Microsoft 365 account
+                • You have access to the specified plan
+                • The Planner connection is properly configured
+
+            - kind: Question
+              id: askSelectPlan
+              prompt: Would you like to select a different plan or try again?
+              variable: init:Topic.ErrorChoice
+              entity:
+                kind: EmbeddedEntity
+                definition:
+                  kind: ClosedListEntity
+                  items:
+                    - id: retry
+                      displayName: Try again
+                    - id: selectPlan
+                      displayName: Select a different plan
+                    - id: cancel
+                      displayName: Cancel
+
+        - id: noTasks
+          condition: =Topic.PlannerTaskCount = 0
+          actions:
+            - kind: SendMessage
+              id: noTasksMsg
+              message: |
+                ✨ No pending tasks found in Planner{If(!IsBlank(Topic.PlanName), " (" & Topic.PlanName & ")", "")}.
+
+                Would you like to:
+                • Check your Notion tasks instead
+                • Build your full daily checklist
+                • Go back to the main menu
+
+        - id: hasTasks
+          condition: =Topic.PlannerTaskCount > 0
+          actions:
+            - kind: SendMessage
+              id: tasksHeader
+              message: "📊 **Your Planner Tasks** - {Topic.PlanName} ({Topic.PlannerTaskCount} items):"
+
+            - kind: ForEachAction
+              id: loopTasks
+              itemsSource: =Topic.PlannerTasks
+              itemVariable: Topic.CurrentTask
+              actions:
+                - kind: SendMessage
+                  id: displayTask
+                  message: |
+                    {If(Topic.CurrentTask.priority = 1, "🔴", If(Topic.CurrentTask.priority = 3, "🟡", "🟢"))} **{Topic.CurrentTask.title}**
+                    └ Bucket: {Topic.CurrentTask.bucketName} | Due: {Topic.CurrentTask.dueDate} | Progress: {Topic.CurrentTask.percentComplete}%
+
+            - kind: Question
+              id: askAction
+              prompt: What would you like to do with these tasks?
+              variable: init:Topic.TaskAction
+              entity:
+                kind: EmbeddedEntity
+                definition:
+                  kind: ClosedListEntity
+                  items:
+                    - id: addToChecklist
+                      displayName: Add all to my daily checklist
+                    - id: markComplete
+                      displayName: Mark a task as complete
+                    - id: filterByBucket
+                      displayName: Filter by bucket
+                    - id: viewNotion
+                      displayName: Also view Notion tasks
+                    - id: done
+                      displayName: I'm done for now
+
+            - kind: ConditionGroup
+              id: handleTaskAction
+              conditions:
+                - id: addToChecklistAction
+                  condition: =Topic.TaskAction = 'addToChecklist'
+                  actions:
+                    - kind: SetVariable
+                      id: setPlannerTasksForChecklist
+                      variable: Global.PlannerTasksForChecklist
+                      value: =Topic.PlannerTasks
+                    - kind: SendMessage
+                      id: confirmAdd
+                      message: "✅ {Topic.PlannerTaskCount} Planner tasks added to your daily checklist!"
+
+                - id: markCompleteAction
+                  condition: =Topic.TaskAction = 'markComplete'
+                  actions:
+                    - kind: Question
+                      id: selectTaskToComplete
+                      prompt: Which task would you like to mark as complete?
+                      variable: init:Topic.SelectedTask
+                      entity:
+                        kind: EmbeddedEntity
+                        definition:
+                          kind: ClosedListEntity
+                          smartMatching: true
+                          # Dynamic items populated from Topic.PlannerTasks
+
+                    - kind: InvokeFlowAction
+                      id: updatePlannerTask
+                      flowId: update-task-status
+                      input:
+                        binding:
+                          taskId: =Topic.SelectedTask.id
+                          source: "planner"
+                          newStatus: "completed"
+                      output:
+                        binding:
+                          success: Topic.UpdateSuccess
+
+                    - kind: ConditionGroup
+                      id: checkUpdate
+                      conditions:
+                        - id: updateSuccess
+                          condition: =Topic.UpdateSuccess = true
+                          actions:
+                            - kind: SendMessage
+                              id: successMsg
+                              message: "✅ Task marked as complete in Planner!"
+
+                - id: filterByBucketAction
+                  condition: =Topic.TaskAction = 'filterByBucket'
+                  actions:
+                    - kind: Question
+                      id: selectBucket
+                      prompt: Which bucket would you like to view?
+                      variable: init:Topic.SelectedBucket
+                      entity:
+                        kind: EmbeddedEntity
+                        definition:
+                          kind: ClosedListEntity
+                          smartMatching: true
+
+                - id: viewNotionAction
+                  condition: =Topic.TaskAction = 'viewNotion'
+                  actions:
+                    - kind: BeginDialog
+                      id: gotoNotionFromPlanner
+                      dialog: get-notion-tasks
+
+inputParameters:
+  - name: planId
+    type: String
+    description: Optional Planner plan ID to query
+    required: false
+  - name: bucketId
+    type: String
+    description: Optional bucket ID to filter by
+    required: false
+
+outputParameters:
+  - name: plannerTasks
+    type: Table
+    description: List of tasks retrieved from Planner
+  - name: taskCount
+    type: Number
+    description: Number of tasks retrieved

@@ -1,0 +1,247 @@
+kind: AdaptiveDialog
+modelDescription: This topic allows users to manage their checklist items - mark complete, update priority, etc.
+beginDialog:
+  kind: OnRecognizedIntent
+  id: main
+  intent:
+    triggerQueries:
+      - Mark task complete
+      - Complete a task
+      - Update task
+      - Check off task
+      - Done with task
+      - Finish task
+      - Mark as done
+      - Task completed
+
+  actions:
+    - kind: ConditionGroup
+      id: checkExistingChecklist
+      conditions:
+        - id: noChecklist
+          condition: =IsBlank(Global.CurrentDailyChecklist) Or CountRows(Global.CurrentDailyChecklist) = 0
+          actions:
+            - kind: SendMessage
+              id: noChecklistMsg
+              message: |
+                ℹ️ You don't have a daily checklist built yet.
+
+                Would you like me to build one for you?
+
+            - kind: Question
+              id: askBuildChecklist
+              prompt: Build your daily checklist?
+              variable: init:Topic.BuildChoice
+              entity:
+                kind: EmbeddedEntity
+                definition:
+                  kind: BooleanEntity
+
+            - kind: ConditionGroup
+              id: handleBuild
+              conditions:
+                - id: yesBuild
+                  condition: =Topic.BuildChoice = true
+                  actions:
+                    - kind: BeginDialog
+                      id: gotoBuild
+                      dialog: build-daily-checklist
+
+        - id: hasChecklist
+          condition: =CountRows(Global.CurrentDailyChecklist) > 0
+          actions:
+            - kind: SendMessage
+              id: selectTaskHeader
+              message: "📋 Select a task to update:"
+
+            - kind: ForEachAction
+              id: listTasks
+              itemsSource: =Global.CurrentDailyChecklist
+              itemVariable: Topic.Task
+              index: Topic.TaskIndex
+              actions:
+                - kind: SendMessage
+                  id: listTask
+                  message: "{Topic.TaskIndex + 1}. {Topic.Task.title} ({Topic.Task.source})"
+
+            - kind: Question
+              id: askTaskNumber
+              prompt: Enter the task number or name
+              variable: init:Topic.SelectedTaskInput
+              entity:
+                kind: EmbeddedEntity
+                definition:
+                  kind: StringEntity
+
+            - kind: SetVariable
+              id: findTask
+              variable: Topic.SelectedTask
+              value: =LookUp(Global.CurrentDailyChecklist, title = Topic.SelectedTaskInput Or Text(Topic.TaskIndex + 1) = Topic.SelectedTaskInput)
+
+            - kind: ConditionGroup
+              id: checkTaskFound
+              conditions:
+                - id: taskNotFound
+                  condition: =IsBlank(Topic.SelectedTask)
+                  actions:
+                    - kind: SendMessage
+                      id: notFoundMsg
+                      message: "⚠️ I couldn't find that task. Please try again with the exact task name or number."
+
+                - id: taskFound
+                  condition: =!IsBlank(Topic.SelectedTask)
+                  actions:
+                    - kind: SendMessage
+                      id: taskSelectedMsg
+                      message: |
+                        **Selected Task:** {Topic.SelectedTask.title}
+                        Source: {Topic.SelectedTask.source}
+                        Current Status: {Topic.SelectedTask.status}
+
+                    - kind: Question
+                      id: askAction
+                      prompt: What would you like to do with this task?
+                      variable: init:Topic.TaskAction
+                      entity:
+                        kind: EmbeddedEntity
+                        definition:
+                          kind: ClosedListEntity
+                          items:
+                            - id: complete
+                              displayName: Mark as complete
+                            - id: inProgress
+                              displayName: Mark as in progress
+                            - id: highPriority
+                              displayName: Set high priority
+                            - id: postpone
+                              displayName: Postpone to tomorrow
+                            - id: cancel
+                              displayName: Cancel
+
+                    - kind: ConditionGroup
+                      id: executeAction
+                      conditions:
+                        - id: markComplete
+                          condition: =Topic.TaskAction = 'complete'
+                          actions:
+                            - kind: InvokeFlowAction
+                              id: updateToComplete
+                              flowId: update-task-status
+                              input:
+                                binding:
+                                  taskId: =Topic.SelectedTask.id
+                                  source: =Topic.SelectedTask.source
+                                  newStatus: "completed"
+                              output:
+                                binding:
+                                  success: Topic.UpdateSuccess
+                                  errorMessage: Topic.UpdateError
+
+                            - kind: ConditionGroup
+                              id: checkCompleteResult
+                              conditions:
+                                - id: completeSuccess
+                                  condition: =Topic.UpdateSuccess = true
+                                  actions:
+                                    - kind: SendMessage
+                                      id: completeSuccessMsg
+                                      message: |
+                                        ✅ **Task Completed!**
+
+                                        "{Topic.SelectedTask.title}" has been marked as complete in {Topic.SelectedTask.source}.
+
+                                        Great job! Keep up the momentum! 🎉
+
+                                    # Update local checklist
+                                    - kind: SetVariable
+                                      id: removeFromChecklist
+                                      variable: Global.CurrentDailyChecklist
+                                      value: =Filter(Global.CurrentDailyChecklist, id <> Topic.SelectedTask.id)
+
+                                - id: completeFailed
+                                  condition: =Topic.UpdateSuccess = false
+                                  actions:
+                                    - kind: SendMessage
+                                      id: completeFailedMsg
+                                      message: "⚠️ Failed to update task: {Topic.UpdateError}"
+
+                        - id: markInProgress
+                          condition: =Topic.TaskAction = 'inProgress'
+                          actions:
+                            - kind: InvokeFlowAction
+                              id: updateToInProgress
+                              flowId: update-task-status
+                              input:
+                                binding:
+                                  taskId: =Topic.SelectedTask.id
+                                  source: =Topic.SelectedTask.source
+                                  newStatus: "inProgress"
+                              output:
+                                binding:
+                                  success: Topic.UpdateSuccess
+
+                            - kind: SendMessage
+                              id: inProgressMsg
+                              message: "🔄 Task marked as **In Progress**!"
+
+                        - id: setHighPriority
+                          condition: =Topic.TaskAction = 'highPriority'
+                          actions:
+                            - kind: InvokeFlowAction
+                              id: updatePriority
+                              flowId: update-task-status
+                              input:
+                                binding:
+                                  taskId: =Topic.SelectedTask.id
+                                  source: =Topic.SelectedTask.source
+                                  priority: "high"
+                              output:
+                                binding:
+                                  success: Topic.UpdateSuccess
+
+                            - kind: SendMessage
+                              id: priorityMsg
+                              message: "🔴 Task priority set to **High**!"
+
+                        - id: postponeTask
+                          condition: =Topic.TaskAction = 'postpone'
+                          actions:
+                            - kind: InvokeFlowAction
+                              id: postponeUpdate
+                              flowId: update-task-status
+                              input:
+                                binding:
+                                  taskId: =Topic.SelectedTask.id
+                                  source: =Topic.SelectedTask.source
+                                  dueDate: =DateAdd(Today(), 1, Days)
+                              output:
+                                binding:
+                                  success: Topic.UpdateSuccess
+
+                            - kind: SendMessage
+                              id: postponeMsg
+                              message: "📅 Task postponed to tomorrow!"
+
+                            - kind: SetVariable
+                              id: removePostponed
+                              variable: Global.CurrentDailyChecklist
+                              value: =Filter(Global.CurrentDailyChecklist, id <> Topic.SelectedTask.id)
+
+            - kind: Question
+              id: askContinue
+              prompt: Would you like to update another task?
+              variable: init:Topic.ContinueChoice
+              entity:
+                kind: EmbeddedEntity
+                definition:
+                  kind: BooleanEntity
+
+            - kind: ConditionGroup
+              id: handleContinue
+              conditions:
+                - id: continueYes
+                  condition: =Topic.ContinueChoice = true
+                  actions:
+                    - kind: GotoAction
+                      id: repeatManage
+                      actionId: selectTaskHeader

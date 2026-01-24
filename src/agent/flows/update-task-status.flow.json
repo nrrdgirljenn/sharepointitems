@@ -1,0 +1,343 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "metadata": {
+      "flowId": "update-task-status",
+      "displayName": "Update Task Status",
+      "description": "Updates task status in Notion or Planner",
+      "author": "Daily Project Checklist Agent",
+      "version": "1.0.0"
+    },
+    "parameters": {
+      "notionConnection": {
+        "type": "string",
+        "defaultValue": "notion-connection"
+      },
+      "plannerConnection": {
+        "type": "string",
+        "defaultValue": "planner-connection"
+      }
+    },
+    "triggers": {
+      "manual": {
+        "type": "Request",
+        "kind": "PowerVirtualAgents",
+        "inputs": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "taskId": {
+                "type": "string",
+                "description": "ID of the task to update"
+              },
+              "source": {
+                "type": "string",
+                "description": "Source system (Notion or Planner)",
+                "enum": ["Notion", "Planner", "notion", "planner"]
+              },
+              "newStatus": {
+                "type": "string",
+                "description": "New status for the task",
+                "enum": ["notStarted", "inProgress", "completed"]
+              },
+              "priority": {
+                "type": "string",
+                "description": "New priority (optional)"
+              },
+              "dueDate": {
+                "type": "string",
+                "description": "New due date (optional)"
+              }
+            },
+            "required": ["taskId", "source", "newStatus"]
+          }
+        }
+      }
+    },
+    "actions": {
+      "Initialize_Result": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "updateSuccess",
+              "type": "boolean",
+              "value": false
+            },
+            {
+              "name": "errorMessage",
+              "type": "string",
+              "value": ""
+            }
+          ]
+        },
+        "runAfter": {}
+      },
+      "Switch_Source": {
+        "type": "Switch",
+        "expression": "@toLower(triggerBody()?['source'])",
+        "cases": {
+          "notion": {
+            "case": "notion",
+            "actions": {
+              "Map_Notion_Status": {
+                "type": "Compose",
+                "inputs": {
+                  "statusValue": "@{if(equals(triggerBody()?['newStatus'], 'completed'), 'Done', if(equals(triggerBody()?['newStatus'], 'inProgress'), 'In progress', 'Not started'))}"
+                }
+              },
+              "Build_Notion_Update_Body": {
+                "type": "Compose",
+                "inputs": {
+                  "properties": {
+                    "Status": {
+                      "status": {
+                        "name": "@outputs('Map_Notion_Status')?['statusValue']"
+                      }
+                    }
+                  }
+                },
+                "runAfter": {
+                  "Map_Notion_Status": ["Succeeded"]
+                }
+              },
+              "Add_Priority_If_Specified": {
+                "type": "If",
+                "expression": {
+                  "and": [
+                    {
+                      "not": {
+                        "equals": ["@triggerBody()?['priority']", null]
+                      }
+                    }
+                  ]
+                },
+                "actions": {
+                  "Append_Priority": {
+                    "type": "Compose",
+                    "inputs": "@setProperty(outputs('Build_Notion_Update_Body'), 'properties', setProperty(outputs('Build_Notion_Update_Body')?['properties'], 'Priority', json(concat('{\"select\": {\"name\": \"', triggerBody()?['priority'], '\"}}' ))))"
+                  }
+                },
+                "runAfter": {
+                  "Build_Notion_Update_Body": ["Succeeded"]
+                }
+              },
+              "Update_Notion_Page": {
+                "type": "Http",
+                "inputs": {
+                  "method": "PATCH",
+                  "uri": "https://api.notion.com/v1/pages/@{triggerBody()?['taskId']}",
+                  "headers": {
+                    "Authorization": "Bearer @{parameters('notionApiKey')}",
+                    "Notion-Version": "2022-06-28",
+                    "Content-Type": "application/json"
+                  },
+                  "body": "@coalesce(outputs('Append_Priority'), outputs('Build_Notion_Update_Body'))"
+                },
+                "runAfter": {
+                  "Add_Priority_If_Specified": ["Succeeded"]
+                }
+              },
+              "Set_Notion_Success": {
+                "type": "SetVariable",
+                "inputs": {
+                  "name": "updateSuccess",
+                  "value": true
+                },
+                "runAfter": {
+                  "Update_Notion_Page": ["Succeeded"]
+                }
+              },
+              "Set_Notion_Error": {
+                "type": "SetVariable",
+                "inputs": {
+                  "name": "errorMessage",
+                  "value": "Failed to update Notion task: @{body('Update_Notion_Page')?['message']}"
+                },
+                "runAfter": {
+                  "Update_Notion_Page": ["Failed"]
+                }
+              }
+            }
+          },
+          "planner": {
+            "case": "planner",
+            "actions": {
+              "Get_Task_For_Etag": {
+                "type": "Http",
+                "inputs": {
+                  "method": "GET",
+                  "uri": "https://graph.microsoft.com/v1.0/planner/tasks/@{triggerBody()?['taskId']}",
+                  "authentication": {
+                    "type": "ManagedServiceIdentity",
+                    "audience": "https://graph.microsoft.com"
+                  }
+                }
+              },
+              "Map_Planner_Status": {
+                "type": "Compose",
+                "inputs": {
+                  "percentComplete": "@{if(equals(triggerBody()?['newStatus'], 'completed'), 100, if(equals(triggerBody()?['newStatus'], 'inProgress'), 50, 0))}"
+                },
+                "runAfter": {
+                  "Get_Task_For_Etag": ["Succeeded"]
+                }
+              },
+              "Build_Planner_Update_Body": {
+                "type": "Compose",
+                "inputs": {
+                  "percentComplete": "@int(outputs('Map_Planner_Status')?['percentComplete'])"
+                },
+                "runAfter": {
+                  "Map_Planner_Status": ["Succeeded"]
+                }
+              },
+              "Add_Planner_Priority": {
+                "type": "If",
+                "expression": {
+                  "and": [
+                    {
+                      "not": {
+                        "equals": ["@triggerBody()?['priority']", null]
+                      }
+                    }
+                  ]
+                },
+                "actions": {
+                  "Map_Priority_Value": {
+                    "type": "Compose",
+                    "inputs": "@{if(equals(triggerBody()?['priority'], 'high'), 1, if(equals(triggerBody()?['priority'], 'medium'), 5, 9))}"
+                  },
+                  "Append_Planner_Priority": {
+                    "type": "Compose",
+                    "inputs": "@setProperty(outputs('Build_Planner_Update_Body'), 'priority', int(outputs('Map_Priority_Value')))",
+                    "runAfter": {
+                      "Map_Priority_Value": ["Succeeded"]
+                    }
+                  }
+                },
+                "runAfter": {
+                  "Build_Planner_Update_Body": ["Succeeded"]
+                }
+              },
+              "Add_Planner_DueDate": {
+                "type": "If",
+                "expression": {
+                  "and": [
+                    {
+                      "not": {
+                        "equals": ["@triggerBody()?['dueDate']", null]
+                      }
+                    }
+                  ]
+                },
+                "actions": {
+                  "Append_DueDate": {
+                    "type": "Compose",
+                    "inputs": "@setProperty(coalesce(outputs('Append_Planner_Priority'), outputs('Build_Planner_Update_Body')), 'dueDateTime', triggerBody()?['dueDate'])"
+                  }
+                },
+                "runAfter": {
+                  "Add_Planner_Priority": ["Succeeded"]
+                }
+              },
+              "Update_Planner_Task": {
+                "type": "Http",
+                "inputs": {
+                  "method": "PATCH",
+                  "uri": "https://graph.microsoft.com/v1.0/planner/tasks/@{triggerBody()?['taskId']}",
+                  "headers": {
+                    "If-Match": "@body('Get_Task_For_Etag')?['@odata.etag']",
+                    "Content-Type": "application/json"
+                  },
+                  "authentication": {
+                    "type": "ManagedServiceIdentity",
+                    "audience": "https://graph.microsoft.com"
+                  },
+                  "body": "@coalesce(outputs('Append_DueDate'), outputs('Append_Planner_Priority'), outputs('Build_Planner_Update_Body'))"
+                },
+                "runAfter": {
+                  "Add_Planner_DueDate": ["Succeeded"]
+                }
+              },
+              "Set_Planner_Success": {
+                "type": "SetVariable",
+                "inputs": {
+                  "name": "updateSuccess",
+                  "value": true
+                },
+                "runAfter": {
+                  "Update_Planner_Task": ["Succeeded"]
+                }
+              },
+              "Set_Planner_Error": {
+                "type": "SetVariable",
+                "inputs": {
+                  "name": "errorMessage",
+                  "value": "Failed to update Planner task. Please try again."
+                },
+                "runAfter": {
+                  "Update_Planner_Task": ["Failed"]
+                }
+              }
+            }
+          }
+        },
+        "default": {
+          "actions": {
+            "Set_Unknown_Source_Error": {
+              "type": "SetVariable",
+              "inputs": {
+                "name": "errorMessage",
+                "value": "Unknown task source: @{triggerBody()?['source']}"
+              }
+            }
+          }
+        },
+        "runAfter": {
+          "Initialize_Result": ["Succeeded"]
+        }
+      },
+      "Response": {
+        "type": "Response",
+        "kind": "PowerVirtualAgents",
+        "inputs": {
+          "statusCode": 200,
+          "body": {
+            "success": "@variables('updateSuccess')",
+            "errorMessage": "@variables('errorMessage')",
+            "taskId": "@triggerBody()?['taskId']",
+            "newStatus": "@triggerBody()?['newStatus']",
+            "updatedAt": "@utcNow()"
+          }
+        },
+        "runAfter": {
+          "Switch_Source": ["Succeeded", "Failed"]
+        }
+      }
+    },
+    "outputs": {
+      "success": {
+        "type": "boolean",
+        "description": "Whether the update was successful"
+      },
+      "errorMessage": {
+        "type": "string",
+        "description": "Error message if update failed"
+      },
+      "taskId": {
+        "type": "string",
+        "description": "ID of the updated task"
+      },
+      "newStatus": {
+        "type": "string",
+        "description": "The new status that was set"
+      },
+      "updatedAt": {
+        "type": "string",
+        "description": "Timestamp of the update"
+      }
+    }
+  }
+}
