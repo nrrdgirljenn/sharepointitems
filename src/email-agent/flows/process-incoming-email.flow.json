@@ -1,0 +1,392 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "metadata": {
+      "flowId": "process-incoming-email",
+      "displayName": "Process Incoming Email - Document and Auto-Reply",
+      "description": "Triggers on each new email in the monitored mailbox, logs the email to a SharePoint list, evaluates matching rules, and sends an automated reply",
+      "author": "Copilot Email Agent",
+      "version": "1.0.0"
+    },
+    "parameters": {
+      "sharePointSiteUrl": {
+        "type": "string",
+        "defaultValue": "https://yourtenant.sharepoint.com/sites/yoursite",
+        "metadata": {
+          "description": "URL of the SharePoint site that hosts the EmailLog list"
+        }
+      },
+      "sharePointListName": {
+        "type": "string",
+        "defaultValue": "EmailLog",
+        "metadata": {
+          "description": "Name of the SharePoint list used for email logging"
+        }
+      },
+      "autoReplyEnabled": {
+        "type": "bool",
+        "defaultValue": true,
+        "metadata": {
+          "description": "Master toggle for auto-reply functionality"
+        }
+      },
+      "defaultReplyTemplate": {
+        "type": "string",
+        "defaultValue": "Thank you for your email. I have received your message and will respond as soon as possible.\n\nThis is an automated acknowledgement.\n\nBest regards,\n[Your Name]",
+        "metadata": {
+          "description": "Default auto-reply body text used when no specific rule matches"
+        }
+      }
+    },
+    "triggers": {
+      "When_a_new_email_arrives": {
+        "type": "OpenApiConnection",
+        "inputs": {
+          "host": {
+            "connectionName": "outlook-connection",
+            "operationId": "GetEmailsV2",
+            "apiId": "/providers/Microsoft.PowerApps/apis/shared_office365"
+          },
+          "parameters": {
+            "folderPath": "Inbox",
+            "importance": "Any",
+            "fetchOnlyWithAttachment": false,
+            "includeAttachments": true,
+            "subjectFilter": ""
+          }
+        },
+        "recurrence": {
+          "frequency": "Minute",
+          "interval": 1
+        },
+        "splitOn": "@triggerBody()?['value']"
+      }
+    },
+    "actions": {
+      "Initialize_AutoReply_Sent": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "autoReplySent",
+              "type": "boolean",
+              "value": false
+            }
+          ]
+        },
+        "runAfter": {}
+      },
+      "Initialize_Rule_Applied": {
+        "type": "InitializeVariable",
+        "inputs": [
+          {
+            "name": "ruleApplied",
+            "type": "string",
+            "value": ""
+          }
+        ],
+        "runAfter": {
+          "Initialize_AutoReply_Sent": ["Succeeded"]
+        }
+      },
+      "Initialize_Reply_Template": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "replyTemplate",
+              "type": "string",
+              "value": "@parameters('defaultReplyTemplate')"
+            }
+          ]
+        },
+        "runAfter": {
+          "Initialize_Rule_Applied": ["Succeeded"]
+        }
+      },
+      "Initialize_Category": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "emailCategory",
+              "type": "string",
+              "value": "Inbox"
+            }
+          ]
+        },
+        "runAfter": {
+          "Initialize_Reply_Template": ["Succeeded"]
+        }
+      },
+      "Initialize_Flag_For_FollowUp": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "flagForFollowUp",
+              "type": "boolean",
+              "value": false
+            }
+          ]
+        },
+        "runAfter": {
+          "Initialize_Category": ["Succeeded"]
+        }
+      },
+      "Check_If_Sender_Is_Excluded": {
+        "type": "If",
+        "expression": {
+          "or": [
+            {
+              "startsWith": [
+                "@{toLower(triggerBody()?['from']?['emailAddress']?['address'])}",
+                "noreply@"
+              ]
+            },
+            {
+              "startsWith": [
+                "@{toLower(triggerBody()?['from']?['emailAddress']?['address'])}",
+                "donotreply@"
+              ]
+            },
+            {
+              "startsWith": [
+                "@{toLower(triggerBody()?['from']?['emailAddress']?['address'])}",
+                "no-reply@"
+              ]
+            },
+            {
+              "startsWith": [
+                "@{toLower(triggerBody()?['from']?['emailAddress']?['address'])}",
+                "mailer-daemon@"
+              ]
+            }
+          ]
+        },
+        "actions": {
+          "Log_Skipped_Email": {
+            "type": "OpenApiConnection",
+            "inputs": {
+              "host": {
+                "connectionName": "sharepoint-connection",
+                "operationId": "PostItem",
+                "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+              },
+              "parameters": {
+                "dataset": "@parameters('sharePointSiteUrl')",
+                "table": "@parameters('sharePointListName')",
+                "item": {
+                  "Title": "@{coalesce(triggerBody()?['subject'], '(No Subject)')}",
+                  "FromAddress": "@{triggerBody()?['from']?['emailAddress']?['address']}",
+                  "FromName": "@{triggerBody()?['from']?['emailAddress']?['name']}",
+                  "ToAddresses": "@{join(triggerBody()?['toRecipients'], '; ')}",
+                  "CCAddresses": "@{join(triggerBody()?['ccRecipients'], '; ')}",
+                  "ReceivedDateTime": "@triggerBody()?['receivedDateTime']",
+                  "BodyPreview": "@{substring(triggerBody()?['bodyPreview'], 0, min(500, length(triggerBody()?['bodyPreview'])))}",
+                  "HasAttachments": "@triggerBody()?['hasAttachments']",
+                  "Importance": "@{triggerBody()?['importance']}",
+                  "MessageId": "@{triggerBody()?['id']}",
+                  "ConversationId": "@{triggerBody()?['conversationId']}",
+                  "AutoReplySent": false,
+                  "RuleApplied": "Excluded Sender",
+                  "Category": "Excluded",
+                  "FlaggedForFollowUp": false,
+                  "ProcessingStatus": "Skipped"
+                }
+              }
+            }
+          }
+        },
+        "else": {
+          "actions": {
+            "Evaluate_Support_Rule": {
+              "type": "If",
+              "expression": {
+                "or": [
+                  {
+                    "contains": [
+                      "@{toLower(coalesce(triggerBody()?['subject'], ''))}",
+                      "support"
+                    ]
+                  },
+                  {
+                    "contains": [
+                      "@{toLower(coalesce(triggerBody()?['subject'], ''))}",
+                      "help"
+                    ]
+                  },
+                  {
+                    "contains": [
+                      "@{toLower(coalesce(triggerBody()?['subject'], ''))}",
+                      "issue"
+                    ]
+                  },
+                  {
+                    "contains": [
+                      "@{toLower(coalesce(triggerBody()?['subject'], ''))}",
+                      "problem"
+                    ]
+                  }
+                ]
+              },
+              "actions": {
+                "Set_Support_Rule_Template": {
+                  "type": "SetVariable",
+                  "inputs": {
+                    "name": "replyTemplate",
+                    "value": "Thank you for reaching out to support. Your request has been logged and a team member will be in touch within 1 business day.\n\nRequest Reference: @{triggerBody()?['id']}\n\nBest regards,\nSupport Team"
+                  }
+                },
+                "Set_Support_Rule_Name": {
+                  "type": "SetVariable",
+                  "inputs": {
+                    "name": "ruleApplied",
+                    "value": "Support Requests"
+                  },
+                  "runAfter": {
+                    "Set_Support_Rule_Template": ["Succeeded"]
+                  }
+                },
+                "Set_Support_Category": {
+                  "type": "SetVariable",
+                  "inputs": {
+                    "name": "emailCategory",
+                    "value": "Support Request"
+                  },
+                  "runAfter": {
+                    "Set_Support_Rule_Name": ["Succeeded"]
+                  }
+                },
+                "Set_Support_Flag": {
+                  "type": "SetVariable",
+                  "inputs": {
+                    "name": "flagForFollowUp",
+                    "value": true
+                  },
+                  "runAfter": {
+                    "Set_Support_Category": ["Succeeded"]
+                  }
+                }
+              },
+              "else": {
+                "actions": {
+                  "Set_Default_Rule_Name": {
+                    "type": "SetVariable",
+                    "inputs": {
+                      "name": "ruleApplied",
+                      "value": "General Inquiries"
+                    }
+                  }
+                }
+              }
+            },
+            "Document_Email_To_SharePoint": {
+              "type": "OpenApiConnection",
+              "inputs": {
+                "host": {
+                  "connectionName": "sharepoint-connection",
+                  "operationId": "PostItem",
+                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+                },
+                "parameters": {
+                  "dataset": "@parameters('sharePointSiteUrl')",
+                  "table": "@parameters('sharePointListName')",
+                  "item": {
+                    "Title": "@{coalesce(triggerBody()?['subject'], '(No Subject)')}",
+                    "FromAddress": "@{triggerBody()?['from']?['emailAddress']?['address']}",
+                    "FromName": "@{triggerBody()?['from']?['emailAddress']?['name']}",
+                    "ToAddresses": "@{join(triggerBody()?['toRecipients'], '; ')}",
+                    "CCAddresses": "@{join(triggerBody()?['ccRecipients'], '; ')}",
+                    "ReceivedDateTime": "@triggerBody()?['receivedDateTime']",
+                    "BodyPreview": "@{substring(coalesce(triggerBody()?['bodyPreview'], ''), 0, min(500, length(coalesce(triggerBody()?['bodyPreview'], ''))))}",
+                    "HasAttachments": "@triggerBody()?['hasAttachments']",
+                    "Importance": "@{triggerBody()?['importance']}",
+                    "MessageId": "@{triggerBody()?['id']}",
+                    "ConversationId": "@{triggerBody()?['conversationId']}",
+                    "AutoReplySent": false,
+                    "RuleApplied": "@variables('ruleApplied')",
+                    "Category": "@variables('emailCategory')",
+                    "FlaggedForFollowUp": "@variables('flagForFollowUp')",
+                    "ProcessingStatus": "Logged"
+                  }
+                }
+              },
+              "runAfter": {
+                "Evaluate_Support_Rule": ["Succeeded"]
+              }
+            },
+            "Check_Auto_Reply_Enabled": {
+              "type": "If",
+              "expression": {
+                "equals": [
+                  "@parameters('autoReplyEnabled')",
+                  true
+                ]
+              },
+              "actions": {
+                "Send_Auto_Reply": {
+                  "type": "OpenApiConnection",
+                  "inputs": {
+                    "host": {
+                      "connectionName": "outlook-connection",
+                      "operationId": "ReplyToV2",
+                      "apiId": "/providers/Microsoft.PowerApps/apis/shared_office365"
+                    },
+                    "parameters": {
+                      "messageId": "@triggerBody()?['id']",
+                      "replyParameters": {
+                        "comment": "@variables('replyTemplate')"
+                      }
+                    }
+                  }
+                },
+                "Set_AutoReply_Sent": {
+                  "type": "SetVariable",
+                  "inputs": {
+                    "name": "autoReplySent",
+                    "value": true
+                  },
+                  "runAfter": {
+                    "Send_Auto_Reply": ["Succeeded"]
+                  }
+                },
+                "Update_SharePoint_Item_With_Reply_Status": {
+                  "type": "OpenApiConnection",
+                  "inputs": {
+                    "host": {
+                      "connectionName": "sharepoint-connection",
+                      "operationId": "PatchItem",
+                      "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+                    },
+                    "parameters": {
+                      "dataset": "@parameters('sharePointSiteUrl')",
+                      "table": "@parameters('sharePointListName')",
+                      "id": "@body('Document_Email_To_SharePoint')?['ID']",
+                      "item": {
+                        "AutoReplySent": true,
+                        "AutoReplySentDateTime": "@utcNow()",
+                        "ProcessingStatus": "ReplySent"
+                      }
+                    }
+                  },
+                  "runAfter": {
+                    "Set_AutoReply_Sent": ["Succeeded"]
+                  }
+                }
+              },
+              "runAfter": {
+                "Document_Email_To_SharePoint": ["Succeeded"]
+              }
+            }
+          }
+        },
+        "runAfter": {
+          "Initialize_Flag_For_FollowUp": ["Succeeded"]
+        }
+      }
+    },
+    "outputs": {}
+  }
+}

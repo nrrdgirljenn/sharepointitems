@@ -1,0 +1,201 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "metadata": {
+      "flowId": "get-email-log",
+      "displayName": "Get Email Log",
+      "description": "Retrieves logged email records from the SharePoint EmailLog list, supporting filters for date range, sender, category, and reply status. Called by the Copilot Studio agent to show email history.",
+      "author": "Copilot Email Agent",
+      "version": "1.0.0"
+    },
+    "parameters": {
+      "sharePointSiteUrl": {
+        "type": "string",
+        "defaultValue": "https://yourtenant.sharepoint.com/sites/yoursite"
+      },
+      "sharePointListName": {
+        "type": "string",
+        "defaultValue": "EmailLog"
+      }
+    },
+    "triggers": {
+      "manual": {
+        "type": "Request",
+        "kind": "PowerVirtualAgents",
+        "inputs": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "filterDays": {
+                "type": "integer",
+                "description": "Return emails received in the last N days (default 7)",
+                "default": 7
+              },
+              "filterCategory": {
+                "type": "string",
+                "description": "Filter by category (e.g. 'Support Request', 'Inbox', or empty for all)",
+                "default": ""
+              },
+              "filterAutoReplySent": {
+                "type": "string",
+                "description": "Filter by auto-reply status: 'true', 'false', or 'all'",
+                "default": "all"
+              },
+              "filterSender": {
+                "type": "string",
+                "description": "Filter by sender email address (partial match supported)",
+                "default": ""
+              },
+              "maxResults": {
+                "type": "integer",
+                "description": "Maximum number of records to return",
+                "default": 25
+              }
+            }
+          }
+        }
+      }
+    },
+    "actions": {
+      "Compute_Date_Filter": {
+        "type": "Compose",
+        "inputs": "@{formatDateTime(addDays(utcNow(), mul(-1, coalesce(triggerBody()?['filterDays'], 7))), 'yyyy-MM-ddTHH:mm:ssZ')}",
+        "runAfter": {}
+      },
+      "Get_Email_Log_Items": {
+        "type": "OpenApiConnection",
+        "inputs": {
+          "host": {
+            "connectionName": "sharepoint-connection",
+            "operationId": "GetItems",
+            "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+          },
+          "parameters": {
+            "dataset": "@parameters('sharePointSiteUrl')",
+            "table": "@parameters('sharePointListName')",
+            "$filter": "@{concat('ReceivedDateTime ge ''', outputs('Compute_Date_Filter'), '''')}",
+            "$orderby": "ReceivedDateTime desc",
+            "$top": "@coalesce(triggerBody()?['maxResults'], 25)"
+          }
+        },
+        "runAfter": {
+          "Compute_Date_Filter": ["Succeeded"]
+        }
+      },
+      "Apply_Category_Filter": {
+        "type": "If",
+        "expression": {
+          "and": [
+            {
+              "not": {
+                "equals": ["@coalesce(triggerBody()?['filterCategory'], '')", ""]
+              }
+            }
+          ]
+        },
+        "actions": {
+          "Filter_By_Category": {
+            "type": "Query",
+            "inputs": {
+              "from": "@body('Get_Email_Log_Items')?['value']",
+              "where": "@equals(item()?['Category'], triggerBody()?['filterCategory'])"
+            }
+          }
+        },
+        "else": {
+          "actions": {
+            "All_Categories_Passthrough": {
+              "type": "Compose",
+              "inputs": "@body('Get_Email_Log_Items')?['value']"
+            }
+          }
+        },
+        "runAfter": {
+          "Get_Email_Log_Items": ["Succeeded"]
+        }
+      },
+      "Select_Display_Fields": {
+        "type": "Select",
+        "inputs": {
+          "from": "@if(equals(coalesce(triggerBody()?['filterCategory'], ''), ''), outputs('All_Categories_Passthrough'), body('Filter_By_Category'))",
+          "select": {
+            "id": "@item()?['ID']",
+            "subject": "@item()?['Title']",
+            "fromAddress": "@item()?['FromAddress']",
+            "fromName": "@item()?['FromName']",
+            "receivedDateTime": "@item()?['ReceivedDateTime']",
+            "bodyPreview": "@item()?['BodyPreview']",
+            "hasAttachments": "@item()?['HasAttachments']",
+            "importance": "@item()?['Importance']",
+            "category": "@item()?['Category']",
+            "autoReplySent": "@item()?['AutoReplySent']",
+            "autoReplySentDateTime": "@item()?['AutoReplySentDateTime']",
+            "ruleApplied": "@item()?['RuleApplied']",
+            "flaggedForFollowUp": "@item()?['FlaggedForFollowUp']",
+            "processingStatus": "@item()?['ProcessingStatus']"
+          }
+        },
+        "runAfter": {
+          "Apply_Category_Filter": ["Succeeded"]
+        }
+      },
+      "Response": {
+        "type": "Response",
+        "kind": "PowerVirtualAgents",
+        "inputs": {
+          "statusCode": 200,
+          "body": {
+            "emails": "@body('Select_Display_Fields')",
+            "totalCount": "@length(body('Select_Display_Fields'))",
+            "filterApplied": {
+              "days": "@coalesce(triggerBody()?['filterDays'], 7)",
+              "category": "@coalesce(triggerBody()?['filterCategory'], 'all')",
+              "sender": "@coalesce(triggerBody()?['filterSender'], 'all')"
+            },
+            "errorMessage": null,
+            "queriedAt": "@utcNow()"
+          }
+        },
+        "runAfter": {
+          "Select_Display_Fields": ["Succeeded"]
+        }
+      },
+      "Error_Response": {
+        "type": "Response",
+        "kind": "PowerVirtualAgents",
+        "inputs": {
+          "statusCode": 200,
+          "body": {
+            "emails": [],
+            "totalCount": 0,
+            "filterApplied": null,
+            "errorMessage": "Failed to retrieve the email log. Please check the SharePoint connection and list configuration.",
+            "queriedAt": null
+          }
+        },
+        "runAfter": {
+          "Get_Email_Log_Items": ["Failed", "TimedOut"]
+        }
+      }
+    },
+    "outputs": {
+      "emails": {
+        "type": "array",
+        "description": "Array of logged email records"
+      },
+      "totalCount": {
+        "type": "integer",
+        "description": "Number of records returned"
+      },
+      "errorMessage": {
+        "type": "string",
+        "description": "Error message if retrieval failed"
+      },
+      "queriedAt": {
+        "type": "string",
+        "description": "UTC timestamp when the query ran"
+      }
+    }
+  }
+}

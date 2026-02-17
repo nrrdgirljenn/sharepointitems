@@ -1,0 +1,145 @@
+kind: AdaptiveDialog
+modelDescription: Provides a high-level summary of recent email activity including counts, categories, and reply statistics
+beginDialog:
+  kind: OnRecognizedIntent
+  id: main
+  intent:
+    triggerQueries:
+      - email summary
+      - summarize emails
+      - how many emails
+      - email stats
+      - inbox summary
+      - email report
+      - email activity
+      - what happened in my inbox
+      - show email statistics
+
+  actions:
+    - kind: SendMessage
+      id: loadingMsg
+      message: "Pulling together your email activity summary..."
+
+    - kind: InvokeFlowAction
+      id: fetchAllEmails
+      flowId: get-email-log
+      inputParameters:
+        filterDays: 7
+        filterCategory: ""
+        maxResults: 200
+      outputParameters:
+        Topic.AllEmails: emails
+        Topic.TotalCount: totalCount
+        Topic.FetchError: errorMessage
+
+    - kind: ConditionGroup
+      id: checkFetchResult
+      conditions:
+        - id: fetchError
+          condition: =!IsBlank(Topic.FetchError)
+          actions:
+            - kind: SendMessage
+              id: fetchErrorMsg
+              message: "I couldn't load the email summary. Error: {Topic.FetchError}"
+
+      else:
+        - kind: InvokeFlowAction
+          id: fetchSupportEmails
+          flowId: get-email-log
+          inputParameters:
+            filterDays: 7
+            filterCategory: "Support Request"
+            maxResults: 200
+          outputParameters:
+            Topic.SupportEmails: emails
+            Topic.SupportCount: totalCount
+
+        - kind: InvokeFlowAction
+          id: fetchRepliedEmails
+          flowId: get-email-log
+          inputParameters:
+            filterDays: 7
+            filterCategory: ""
+            filterAutoReplySent: "true"
+            maxResults: 200
+          outputParameters:
+            Topic.RepliedEmails: emails
+            Topic.RepliedCount: totalCount
+
+        - kind: SendMessage
+          id: summaryReport
+          message: |
+            **Email Activity Summary — Last 7 Days**
+
+            | Metric | Count |
+            |--------|-------|
+            | Total emails received | {Topic.TotalCount} |
+            | Support requests | {Topic.SupportCount} |
+            | Auto-replies sent | {Topic.RepliedCount} |
+
+            **Breakdown by category:**
+            - Support Requests: {Topic.SupportCount}
+            - General Inbox: {Topic.TotalCount - Topic.SupportCount}
+
+            **Auto-reply coverage:** {if(Topic.TotalCount > 0, Text(Round(Topic.RepliedCount / Topic.TotalCount * 100, 0)) & "%", "N/A")} of emails received an auto-reply
+
+        - kind: Question
+          id: askSummaryNext
+          interruptionPolicy:
+            allowInterruption: true
+          prompt: Would you like to see more details?
+          variable: init:Topic.SummaryNextAction
+          entity:
+            kind: EmbeddedEntity
+            definition:
+              kind: ClosedListEntity
+              items:
+                - id: viewLog
+                  displayName: View full email log
+                - id: supportOnly
+                  displayName: Show support requests only
+                - id: done
+                  displayName: No, I'm done
+
+        - kind: ConditionGroup
+          id: routeSummaryNext
+          conditions:
+            - id: gotoLog
+              condition: =Topic.SummaryNextAction = 'viewLog'
+              actions:
+                - kind: BeginDialog
+                  id: startViewLog
+                  dialog: view-email-log
+
+            - id: gotoSupport
+              condition: =Topic.SummaryNextAction = 'supportOnly'
+              actions:
+                - kind: InvokeFlowAction
+                  id: fetchSupportDetail
+                  flowId: get-email-log
+                  inputParameters:
+                    filterDays: 7
+                    filterCategory: "Support Request"
+                    maxResults: 25
+                  outputParameters:
+                    Topic.SupportDetail: emails
+                    Topic.SupportDetailCount: totalCount
+
+                - kind: SendMessage
+                  id: supportHeader
+                  message: "Here are your **{Topic.SupportDetailCount}** support request(s) from the last 7 days:"
+
+                - kind: ForEach
+                  id: listSupportEmails
+                  itemsVariable: Topic.SupportDetail
+                  repeatVariable: Topic.SupportEmail
+                  actions:
+                    - kind: SendMessage
+                      id: supportCard
+                      message: |
+                        ---
+                        **From:** {Topic.SupportEmail.fromName} ({Topic.SupportEmail.fromAddress})
+                        **Subject:** {Topic.SupportEmail.subject}
+                        **Received:** {Topic.SupportEmail.receivedDateTime}
+                        **Auto-reply sent:** {Topic.SupportEmail.autoReplySent}
+                        **Flagged for follow-up:** {Topic.SupportEmail.flaggedForFollowUp}

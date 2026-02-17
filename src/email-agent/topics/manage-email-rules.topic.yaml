@@ -1,0 +1,210 @@
+kind: AdaptiveDialog
+modelDescription: Displays current email rules and allows users to add, disable, or adjust rules that control auto-reply behavior
+beginDialog:
+  kind: OnRecognizedIntent
+  id: main
+  intent:
+    triggerQueries:
+      - manage email rules
+      - view email rules
+      - show email rules
+      - add email rule
+      - create rule
+      - edit rule
+      - disable rule
+      - email routing rules
+      - auto reply rules
+      - what rules are active
+
+  actions:
+    - kind: SendMessage
+      id: rulesIntro
+      message: |
+        **Email Rules** control which incoming emails trigger a specific auto-reply.
+
+        Rules are evaluated in priority order. The first matching rule is applied. If no rule matches, the default reply template is used.
+
+        **Active rules:**
+        1. **Support Requests** (Priority 1)
+           - Triggers when the subject contains: *support*, *help*, *issue*, or *problem*
+           - Sends a support acknowledgement reply
+           - Flags the email for follow-up
+
+        2. **General Inquiries** (Priority 99 — catch-all)
+           - Applies to all other emails
+           - Sends the default acknowledgement reply
+
+    - kind: Question
+      id: askRuleAction
+      interruptionPolicy:
+        allowInterruption: true
+      prompt: What would you like to do with your rules?
+      variable: init:Topic.RuleAction
+      entity:
+        kind: EmbeddedEntity
+        definition:
+          kind: ClosedListEntity
+          items:
+            - id: addRule
+              displayName: Add a new rule
+            - id: updateTemplate
+              displayName: Update a rule's reply template
+            - id: disableRule
+              displayName: Disable a rule
+            - id: done
+              displayName: No changes needed
+
+    - kind: ConditionGroup
+      id: routeRuleAction
+      conditions:
+        - id: addRuleRoute
+          condition: =Topic.RuleAction = 'addRule'
+          actions:
+            - kind: SendMessage
+              id: addRuleIntro
+              message: "I'll help you create a new email rule. Please provide the following details:"
+
+            - kind: Question
+              id: askRuleName
+              interruptionPolicy:
+                allowInterruption: false
+              prompt: What is the name of this rule?
+              variable: init:Topic.NewRuleName
+              entity:
+                kind: EmbeddedEntity
+                definition:
+                  kind: FreeTextEntity
+
+            - kind: Question
+              id: askRuleKeywords
+              interruptionPolicy:
+                allowInterruption: false
+              prompt: |
+                What keywords in the email subject should trigger this rule?
+                (Enter keywords separated by commas. Example: invoice, billing, payment)
+              variable: init:Topic.NewRuleKeywords
+              entity:
+                kind: EmbeddedEntity
+                definition:
+                  kind: FreeTextEntity
+
+            - kind: Question
+              id: askRuleTemplate
+              interruptionPolicy:
+                allowInterruption: false
+              prompt: What auto-reply message should this rule send?
+              variable: init:Topic.NewRuleTemplate
+              entity:
+                kind: EmbeddedEntity
+                definition:
+                  kind: FreeTextEntity
+
+            - kind: Question
+              id: confirmNewRule
+              interruptionPolicy:
+                allowInterruption: true
+              prompt: |
+                Here is your new rule:
+
+                **Name:** {Topic.NewRuleName}
+                **Triggers on keywords:** {Topic.NewRuleKeywords}
+                **Reply template:**
+                ---
+                *{Topic.NewRuleTemplate}*
+                ---
+
+                Save this rule?
+              variable: init:Topic.ConfirmNewRule
+              entity:
+                kind: EmbeddedEntity
+                definition:
+                  kind: ClosedListEntity
+                  items:
+                    - id: yes
+                      displayName: "Yes, save it"
+                    - id: no
+                      displayName: "No, cancel"
+
+            - kind: ConditionGroup
+              id: saveNewRuleCondition
+              conditions:
+                - id: saveNewRuleYes
+                  condition: =Topic.ConfirmNewRule = 'yes'
+                  actions:
+                    - kind: InvokeFlowAction
+                      id: callAddRule
+                      flowId: update-reply-template
+                      inputParameters:
+                        action: addRule
+                        ruleName: =Topic.NewRuleName
+                        ruleConditionSubjectContains: =Topic.NewRuleKeywords
+                        ruleTemplate: =Topic.NewRuleTemplate
+                      outputParameters:
+                        Topic.AddRuleResult: success
+                        Topic.AddRuleMessage: message
+
+                    - kind: ConditionGroup
+                      id: checkAddResult
+                      conditions:
+                        - id: addSuccess
+                          condition: =Topic.AddRuleResult = true
+                          actions:
+                            - kind: SendMessage
+                              id: addSuccessMsg
+                              message: "Your new rule **{Topic.NewRuleName}** has been saved and is now active."
+
+                      else:
+                        - kind: SendMessage
+                          id: addErrorMsg
+                          message: "Something went wrong saving the rule. Please try again or check the SharePoint connection."
+
+        - id: disableRuleRoute
+          condition: =Topic.RuleAction = 'disableRule'
+          actions:
+            - kind: Question
+              id: askRuleToDisable
+              interruptionPolicy:
+                allowInterruption: true
+              prompt: Which rule would you like to disable?
+              variable: init:Topic.RuleToDisable
+              entity:
+                kind: EmbeddedEntity
+                definition:
+                  kind: ClosedListEntity
+                  items:
+                    - id: rule-001
+                      displayName: Support Requests (rule-001)
+                    - id: rule-002
+                      displayName: General Inquiries (rule-002)
+
+            - kind: InvokeFlowAction
+              id: callDisableRule
+              flowId: update-reply-template
+              inputParameters:
+                action: disableRule
+                ruleId: =Topic.RuleToDisable
+              outputParameters:
+                Topic.DisableResult: success
+                Topic.DisableMessage: message
+
+            - kind: SendMessage
+              id: disableResultMsg
+              message: =Topic.DisableMessage
+
+        - id: updateTemplateRoute
+          condition: =Topic.RuleAction = 'updateTemplate'
+          actions:
+            - kind: SendMessage
+              id: updateTemplateNote
+              message: "To update a rule's reply template, use the **Configure auto-reply** option and specify the rule. This keeps templates centrally managed."
+
+            - kind: BeginDialog
+              id: gotoConfigureReply
+              dialog: configure-auto-reply
+
+        - id: doneRoute
+          condition: =Topic.RuleAction = 'done'
+          actions:
+            - kind: SendMessage
+              id: doneMsg
+              message: "No changes made to your email rules. Is there anything else I can help with?"

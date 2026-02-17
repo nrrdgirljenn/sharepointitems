@@ -1,0 +1,137 @@
+kind: AdaptiveDialog
+modelDescription: Allows users to browse and filter the documented email log stored in SharePoint
+beginDialog:
+  kind: OnRecognizedIntent
+  id: main
+  intent:
+    triggerQueries:
+      - view email log
+      - show email log
+      - email history
+      - show logged emails
+      - recent emails
+      - documented emails
+      - what emails came in
+      - emails received
+      - check inbox log
+
+  actions:
+    - kind: SendMessage
+      id: intro
+      message: "Let me pull up your email log. I can filter by time range or category."
+
+    - kind: Question
+      id: askTimeRange
+      interruptionPolicy:
+        allowInterruption: true
+      prompt: How far back would you like to look?
+      variable: init:Topic.FilterDays
+      entity:
+        kind: EmbeddedEntity
+        definition:
+          kind: ClosedListEntity
+          items:
+            - id: "1"
+              displayName: Today (last 24 hours)
+            - id: "7"
+              displayName: Last 7 days
+            - id: "30"
+              displayName: Last 30 days
+            - id: "90"
+              displayName: Last 90 days
+
+    - kind: Question
+      id: askCategory
+      interruptionPolicy:
+        allowInterruption: true
+      prompt: Filter by category?
+      variable: init:Topic.FilterCategory
+      entity:
+        kind: EmbeddedEntity
+        definition:
+          kind: ClosedListEntity
+          items:
+            - id: ""
+              displayName: All categories
+            - id: "Support Request"
+              displayName: Support requests only
+            - id: "Inbox"
+              displayName: General inbox only
+            - id: "Excluded"
+              displayName: Excluded senders only
+
+    - kind: InvokeFlowAction
+      id: callGetEmailLog
+      flowId: get-email-log
+      inputParameters:
+        filterDays: =Int(Topic.FilterDays)
+        filterCategory: =Topic.FilterCategory
+        maxResults: 25
+      outputParameters:
+        Topic.Emails: emails
+        Topic.EmailCount: totalCount
+        Topic.LogError: errorMessage
+
+    - kind: ConditionGroup
+      id: checkLogResult
+      conditions:
+        - id: hasError
+          condition: =!IsBlank(Topic.LogError)
+          actions:
+            - kind: SendMessage
+              id: errorMsg
+              message: "I couldn't retrieve the email log. Error: {Topic.LogError}"
+
+        - id: noEmails
+          condition: =Topic.EmailCount = 0
+          actions:
+            - kind: SendMessage
+              id: noEmailsMsg
+              message: "No emails found for the selected filters. Try expanding the date range or changing the category."
+
+      else:
+        - kind: SendMessage
+          id: logHeader
+          message: "Found **{Topic.EmailCount}** email(s) in your log:"
+
+        - kind: ForEach
+          id: listEmails
+          itemsVariable: Topic.Emails
+          repeatVariable: Topic.CurrentEmail
+          actions:
+            - kind: SendMessage
+              id: emailCard
+              message: |
+                ---
+                **From:** {Topic.CurrentEmail.fromName} ({Topic.CurrentEmail.fromAddress})
+                **Subject:** {Topic.CurrentEmail.subject}
+                **Received:** {Topic.CurrentEmail.receivedDateTime}
+                **Category:** {Topic.CurrentEmail.category}
+                **Auto-reply sent:** {Topic.CurrentEmail.autoReplySent}
+                **Preview:** {Topic.CurrentEmail.bodyPreview}
+
+        - kind: Question
+          id: askViewMore
+          interruptionPolicy:
+            allowInterruption: true
+          prompt: Would you like to do anything else with the email log?
+          variable: init:Topic.NextAction
+          entity:
+            kind: EmbeddedEntity
+            definition:
+              kind: ClosedListEntity
+              items:
+                - id: summary
+                  displayName: Get a summary instead
+                - id: done
+                  displayName: No, I'm done
+
+        - kind: ConditionGroup
+          id: routeNextAction
+          conditions:
+            - id: goToSummary
+              condition: =Topic.NextAction = 'summary'
+              actions:
+                - kind: BeginDialog
+                  id: gotoSummary
+                  dialog: email-summary

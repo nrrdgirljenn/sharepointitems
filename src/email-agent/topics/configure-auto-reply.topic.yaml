@@ -1,0 +1,187 @@
+kind: AdaptiveDialog
+modelDescription: Allows users to view and update the auto-reply template and toggle auto-reply on or off
+beginDialog:
+  kind: OnRecognizedIntent
+  id: main
+  intent:
+    triggerQueries:
+      - configure auto reply
+      - update auto reply
+      - change auto reply
+      - edit auto reply template
+      - set reply message
+      - turn on auto reply
+      - turn off auto reply
+      - enable auto reply
+      - disable auto reply
+      - auto reply settings
+
+  inputs:
+    - kind: InputParameter
+      id: jumpToToggle
+      variable: init:Topic.JumpToToggle
+      defaultValue: false
+
+  actions:
+    - kind: ConditionGroup
+      id: checkJumpToToggle
+      conditions:
+        - id: jumpToToggleRoute
+          condition: =Topic.JumpToToggle = true
+          actions:
+            - kind: BeginDialog
+              id: gotoToggleSection
+              dialog: configure-auto-reply
+              inputParameters:
+                Topic.JumpToToggle: false
+
+      else:
+        - kind: SendMessage
+          id: configureIntro
+          message: |
+            I can help you manage your auto-reply settings.
+
+            **Current options:**
+            - Update your default reply template
+            - Enable or disable auto-replies
+
+        - kind: Question
+          id: askConfigChoice
+          interruptionPolicy:
+            allowInterruption: true
+          prompt: What would you like to change?
+          variable: init:Topic.ConfigChoice
+          entity:
+            kind: EmbeddedEntity
+            definition:
+              kind: ClosedListEntity
+              items:
+                - id: updateTemplate
+                  displayName: Update auto-reply template
+                - id: toggleReply
+                  displayName: Enable or disable auto-reply
+
+        - kind: ConditionGroup
+          id: routeConfigChoice
+          conditions:
+            - id: updateTemplateRoute
+              condition: =Topic.ConfigChoice = 'updateTemplate'
+              actions:
+                - kind: SendMessage
+                  id: templateInstructions
+                  message: |
+                    Please type the new auto-reply message below.
+
+                    **Tips:**
+                    - Keep it brief and professional
+                    - You can use `{EmailId}` as a placeholder for the email reference number
+                    - End with your name or team name
+
+                - kind: Question
+                  id: askNewTemplate
+                  interruptionPolicy:
+                    allowInterruption: false
+                  prompt: Enter your new auto-reply template:
+                  variable: init:Topic.NewTemplate
+                  entity:
+                    kind: EmbeddedEntity
+                    definition:
+                      kind: FreeTextEntity
+
+                - kind: Question
+                  id: confirmTemplate
+                  interruptionPolicy:
+                    allowInterruption: true
+                  prompt: |
+                    Here is your new template:
+
+                    ---
+                    *{Topic.NewTemplate}*
+                    ---
+
+                    Save this as your default auto-reply?
+                  variable: init:Topic.ConfirmSave
+                  entity:
+                    kind: EmbeddedEntity
+                    definition:
+                      kind: ClosedListEntity
+                      items:
+                        - id: yes
+                          displayName: "Yes, save it"
+                        - id: no
+                          displayName: "No, let me re-type it"
+
+                - kind: ConditionGroup
+                  id: saveTemplateCondition
+                  conditions:
+                    - id: saveYes
+                      condition: =Topic.ConfirmSave = 'yes'
+                      actions:
+                        - kind: InvokeFlowAction
+                          id: callUpdateFlow
+                          flowId: update-reply-template
+                          inputParameters:
+                            action: setDefaultTemplate
+                            templateBody: =Topic.NewTemplate
+                          outputParameters:
+                            Topic.UpdateResult: success
+                            Topic.UpdateMessage: message
+
+                        - kind: ConditionGroup
+                          id: checkUpdateResult
+                          conditions:
+                            - id: updateSuccess
+                              condition: =Topic.UpdateResult = true
+                              actions:
+                                - kind: SendMessage
+                                  id: updateSuccessMsg
+                                  message: "Your auto-reply template has been saved. All future replies will use your new message."
+
+                          else:
+                            - kind: SendMessage
+                              id: updateErrorMsg
+                              message: "Something went wrong saving the template. Please check the SharePoint connection and try again."
+
+                    - id: saveNo
+                      condition: =Topic.ConfirmSave = 'no'
+                      actions:
+                        - kind: SendMessage
+                          id: retryMsg
+                          message: "No problem! Please start over and type your new template."
+
+            - id: toggleReplyRoute
+              condition: =Topic.ConfigChoice = 'toggleReply'
+              actions:
+                - kind: Question
+                  id: askToggleChoice
+                  interruptionPolicy:
+                    allowInterruption: true
+                  prompt: Would you like to enable or disable auto-replies?
+                  variable: init:Topic.ToggleChoice
+                  entity:
+                    kind: EmbeddedEntity
+                    definition:
+                      kind: ClosedListEntity
+                      items:
+                        - id: enable
+                          displayName: Enable auto-reply
+                        - id: disable
+                          displayName: Disable auto-reply
+
+                - kind: InvokeFlowAction
+                  id: callToggleFlow
+                  flowId: update-reply-template
+                  inputParameters:
+                    action: toggleAutoReply
+                    autoReplyEnabled: =Topic.ToggleChoice = 'enable'
+                  outputParameters:
+                    Topic.ToggleResult: success
+                    Topic.ToggleMessage: message
+
+                - kind: SendMessage
+                  id: toggleResultMsg
+                  message: =Topic.ToggleMessage
+
+    - kind: SendMessage
+      id: configDoneMessage
+      message: "Is there anything else I can help you with regarding your email agent?"

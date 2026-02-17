@@ -1,0 +1,77 @@
+kind: AdaptiveDialog
+modelDescription: Handles unrecognized user input and guides the user back to supported features
+beginDialog:
+  kind: OnUnknownIntent
+  id: main
+
+  actions:
+    - kind: SendMessage
+      id: fallbackMessage
+      message: |
+        I'm not sure I understood that. I'm your **Copilot Email Agent** and I specialize in:
+
+        - **View email log** - Browse documented incoming emails
+        - **Email summary** - See stats on recent email activity
+        - **Configure auto-reply** - Update your auto-reply message
+        - **Manage email rules** - Add or disable email routing rules
+        - **Toggle auto-reply** - Turn automatic replies on or off
+
+    - kind: Question
+      id: askFallbackChoice
+      interruptionPolicy:
+        allowInterruption: true
+      prompt: What would you like to do?
+      variable: init:Topic.FallbackChoice
+      entity:
+        kind: EmbeddedEntity
+        definition:
+          kind: ClosedListEntity
+          items:
+            - id: viewEmailLog
+              displayName: View email log
+            - id: emailSummary
+              displayName: Email summary
+            - id: configureAutoReply
+              displayName: Configure auto-reply
+            - id: manageRules
+              displayName: Manage email rules
+            - id: nothing
+              displayName: Nothing right now
+
+    - kind: ConditionGroup
+      id: routeFallback
+      conditions:
+        - id: fallbackViewLog
+          condition: =Topic.FallbackChoice = 'viewEmailLog'
+          actions:
+            - kind: BeginDialog
+              id: fallbackGotoLog
+              dialog: view-email-log
+
+        - id: fallbackSummary
+          condition: =Topic.FallbackChoice = 'emailSummary'
+          actions:
+            - kind: BeginDialog
+              id: fallbackGotoSummary
+              dialog: email-summary
+
+        - id: fallbackConfigure
+          condition: =Topic.FallbackChoice = 'configureAutoReply'
+          actions:
+            - kind: BeginDialog
+              id: fallbackGotoConfigure
+              dialog: configure-auto-reply
+
+        - id: fallbackManageRules
+          condition: =Topic.FallbackChoice = 'manageRules'
+          actions:
+            - kind: BeginDialog
+              id: fallbackGotoRules
+              dialog: manage-email-rules
+
+        - id: fallbackNothing
+          condition: =Topic.FallbackChoice = 'nothing'
+          actions:
+            - kind: SendMessage
+              id: fallbackByeMsg
+              message: "No problem! Come back anytime you need help with your email agent."

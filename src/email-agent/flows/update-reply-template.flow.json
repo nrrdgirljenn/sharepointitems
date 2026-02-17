@@ -1,0 +1,266 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "metadata": {
+      "flowId": "update-reply-template",
+      "displayName": "Update Auto-Reply Template",
+      "description": "Updates the auto-reply template and rule settings stored in SharePoint. Called by the Copilot Studio agent when a user configures or changes auto-reply messages.",
+      "author": "Copilot Email Agent",
+      "version": "1.0.0"
+    },
+    "parameters": {
+      "sharePointSiteUrl": {
+        "type": "string",
+        "defaultValue": "https://yourtenant.sharepoint.com/sites/yoursite"
+      },
+      "sharePointListName": {
+        "type": "string",
+        "defaultValue": "EmailAgentConfig"
+      }
+    },
+    "triggers": {
+      "manual": {
+        "type": "Request",
+        "kind": "PowerVirtualAgents",
+        "inputs": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "action": {
+                "type": "string",
+                "description": "Action to perform: 'getTemplate', 'setDefaultTemplate', 'setRuleTemplate', 'toggleAutoReply', 'addRule', 'disableRule'",
+                "enum": [
+                  "getTemplate",
+                  "setDefaultTemplate",
+                  "setRuleTemplate",
+                  "toggleAutoReply",
+                  "addRule",
+                  "disableRule"
+                ]
+              },
+              "templateBody": {
+                "type": "string",
+                "description": "New auto-reply template text (used with setDefaultTemplate and setRuleTemplate)"
+              },
+              "ruleId": {
+                "type": "string",
+                "description": "Rule ID to target (used with setRuleTemplate and disableRule)"
+              },
+              "ruleName": {
+                "type": "string",
+                "description": "Human-readable name for the rule (used with addRule)"
+              },
+              "ruleConditionSubjectContains": {
+                "type": "string",
+                "description": "Comma-separated keywords that trigger the rule based on email subject"
+              },
+              "ruleTemplate": {
+                "type": "string",
+                "description": "Auto-reply text specific to this rule (used with addRule)"
+              },
+              "autoReplyEnabled": {
+                "type": "boolean",
+                "description": "Enable or disable all auto-replies (used with toggleAutoReply)"
+              }
+            },
+            "required": ["action"]
+          }
+        }
+      }
+    },
+    "actions": {
+      "Switch_Action": {
+        "type": "Switch",
+        "expression": "@triggerBody()?['action']",
+        "cases": {
+          "getTemplate": {
+            "case": "getTemplate",
+            "actions": {
+              "Get_Config_Items": {
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "host": {
+                    "connectionName": "sharepoint-connection",
+                    "operationId": "GetItems",
+                    "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+                  },
+                  "parameters": {
+                    "dataset": "@parameters('sharePointSiteUrl')",
+                    "table": "@parameters('sharePointListName')",
+                    "$orderby": "Modified desc",
+                    "$top": 1
+                  }
+                }
+              },
+              "Return_Config": {
+                "type": "Response",
+                "kind": "PowerVirtualAgents",
+                "inputs": {
+                  "statusCode": 200,
+                  "body": {
+                    "success": true,
+                    "config": "@first(body('Get_Config_Items')?['value'])",
+                    "errorMessage": null
+                  }
+                },
+                "runAfter": {
+                  "Get_Config_Items": ["Succeeded"]
+                }
+              }
+            }
+          },
+          "setDefaultTemplate": {
+            "case": "setDefaultTemplate",
+            "actions": {
+              "Get_Config_Record": {
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "host": {
+                    "connectionName": "sharepoint-connection",
+                    "operationId": "GetItems",
+                    "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+                  },
+                  "parameters": {
+                    "dataset": "@parameters('sharePointSiteUrl')",
+                    "table": "@parameters('sharePointListName')",
+                    "$filter": "Title eq 'DefaultConfig'",
+                    "$top": 1
+                  }
+                }
+              },
+              "Update_Default_Template": {
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "host": {
+                    "connectionName": "sharepoint-connection",
+                    "operationId": "PatchItem",
+                    "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+                  },
+                  "parameters": {
+                    "dataset": "@parameters('sharePointSiteUrl')",
+                    "table": "@parameters('sharePointListName')",
+                    "id": "@first(body('Get_Config_Record')?['value'])?['ID']",
+                    "item": {
+                      "DefaultReplyTemplate": "@triggerBody()?['templateBody']",
+                      "LastModified": "@utcNow()"
+                    }
+                  }
+                },
+                "runAfter": {
+                  "Get_Config_Record": ["Succeeded"]
+                }
+              },
+              "Reply_Template_Updated": {
+                "type": "Response",
+                "kind": "PowerVirtualAgents",
+                "inputs": {
+                  "statusCode": 200,
+                  "body": {
+                    "success": true,
+                    "message": "Default auto-reply template has been updated successfully.",
+                    "updatedAt": "@utcNow()",
+                    "errorMessage": null
+                  }
+                },
+                "runAfter": {
+                  "Update_Default_Template": ["Succeeded"]
+                }
+              }
+            }
+          },
+          "toggleAutoReply": {
+            "case": "toggleAutoReply",
+            "actions": {
+              "Get_Config_For_Toggle": {
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "host": {
+                    "connectionName": "sharepoint-connection",
+                    "operationId": "GetItems",
+                    "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+                  },
+                  "parameters": {
+                    "dataset": "@parameters('sharePointSiteUrl')",
+                    "table": "@parameters('sharePointListName')",
+                    "$filter": "Title eq 'DefaultConfig'",
+                    "$top": 1
+                  }
+                }
+              },
+              "Update_AutoReply_Toggle": {
+                "type": "OpenApiConnection",
+                "inputs": {
+                  "host": {
+                    "connectionName": "sharepoint-connection",
+                    "operationId": "PatchItem",
+                    "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline"
+                  },
+                  "parameters": {
+                    "dataset": "@parameters('sharePointSiteUrl')",
+                    "table": "@parameters('sharePointListName')",
+                    "id": "@first(body('Get_Config_For_Toggle')?['value'])?['ID']",
+                    "item": {
+                      "AutoReplyEnabled": "@triggerBody()?['autoReplyEnabled']",
+                      "LastModified": "@utcNow()"
+                    }
+                  }
+                },
+                "runAfter": {
+                  "Get_Config_For_Toggle": ["Succeeded"]
+                }
+              },
+              "Toggle_Response": {
+                "type": "Response",
+                "kind": "PowerVirtualAgents",
+                "inputs": {
+                  "statusCode": 200,
+                  "body": {
+                    "success": true,
+                    "message": "@{if(equals(triggerBody()?['autoReplyEnabled'], true), 'Auto-reply has been enabled.', 'Auto-reply has been disabled.')}",
+                    "autoReplyEnabled": "@triggerBody()?['autoReplyEnabled']",
+                    "errorMessage": null
+                  }
+                },
+                "runAfter": {
+                  "Update_AutoReply_Toggle": ["Succeeded"]
+                }
+              }
+            }
+          }
+        },
+        "default": {
+          "actions": {
+            "Unknown_Action_Response": {
+              "type": "Response",
+              "kind": "PowerVirtualAgents",
+              "inputs": {
+                "statusCode": 200,
+                "body": {
+                  "success": false,
+                  "message": null,
+                  "errorMessage": "Unknown action specified. Valid actions: getTemplate, setDefaultTemplate, setRuleTemplate, toggleAutoReply, addRule, disableRule"
+                }
+              }
+            }
+          }
+        },
+        "runAfter": {}
+      }
+    },
+    "outputs": {
+      "success": {
+        "type": "boolean",
+        "description": "Whether the operation succeeded"
+      },
+      "message": {
+        "type": "string",
+        "description": "Confirmation message"
+      },
+      "errorMessage": {
+        "type": "string",
+        "description": "Error message if the operation failed"
+      }
+    }
+  }
+}

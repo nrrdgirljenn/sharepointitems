@@ -1,0 +1,123 @@
+{
+  "connectionReference": {
+    "id": "sharepoint-connection",
+    "displayName": "SharePoint Online Connection",
+    "description": "Connects to SharePoint Online for logging and documenting incoming email records",
+    "connectorId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+    "type": "microsoft365",
+    "authentication": {
+      "type": "AzureAD",
+      "scopes": [
+        "Sites.ReadWrite.All",
+        "Lists.ReadWrite.All"
+      ]
+    },
+    "configuration": {
+      "siteUrl": "",
+      "listName": "EmailLog"
+    },
+    "sharePointListSchema": {
+      "listName": "EmailLog",
+      "description": "Stores a record of every incoming email processed by the Copilot Email Agent",
+      "columns": [
+        {
+          "name": "Title",
+          "type": "Text",
+          "description": "Email subject line (maps to the default SharePoint Title column)"
+        },
+        {
+          "name": "FromAddress",
+          "type": "Text",
+          "description": "Sender email address"
+        },
+        {
+          "name": "FromName",
+          "type": "Text",
+          "description": "Sender display name"
+        },
+        {
+          "name": "ToAddresses",
+          "type": "Note",
+          "description": "Comma-separated list of recipient addresses"
+        },
+        {
+          "name": "CCAddresses",
+          "type": "Note",
+          "description": "Comma-separated list of CC addresses"
+        },
+        {
+          "name": "ReceivedDateTime",
+          "type": "DateTime",
+          "description": "Date and time the email was received"
+        },
+        {
+          "name": "BodyPreview",
+          "type": "Note",
+          "description": "First 500 characters of the email body"
+        },
+        {
+          "name": "HasAttachments",
+          "type": "Boolean",
+          "description": "Whether the email has attachments"
+        },
+        {
+          "name": "Importance",
+          "type": "Choice",
+          "description": "Email importance level",
+          "choices": ["Low", "Normal", "High"]
+        },
+        {
+          "name": "MessageId",
+          "type": "Text",
+          "description": "Unique Office 365 message ID"
+        },
+        {
+          "name": "ConversationId",
+          "type": "Text",
+          "description": "Conversation thread ID for grouping related emails"
+        },
+        {
+          "name": "AutoReplySent",
+          "type": "Boolean",
+          "description": "Whether an auto-reply was sent for this email"
+        },
+        {
+          "name": "AutoReplySentDateTime",
+          "type": "DateTime",
+          "description": "Date and time the auto-reply was sent"
+        },
+        {
+          "name": "RuleApplied",
+          "type": "Text",
+          "description": "Name of the matching email rule applied"
+        },
+        {
+          "name": "Category",
+          "type": "Text",
+          "description": "Category tag assigned by the matching rule"
+        },
+        {
+          "name": "FlaggedForFollowUp",
+          "type": "Boolean",
+          "description": "Whether this email was flagged for follow-up"
+        },
+        {
+          "name": "ProcessingStatus",
+          "type": "Choice",
+          "description": "Current processing status",
+          "choices": ["Logged", "ReplySent", "Error", "Skipped"]
+        }
+      ]
+    },
+    "setupInstructions": [
+      "1. Go to your SharePoint site and create a new list named 'EmailLog'",
+      "2. Add all columns listed in the sharePointListSchema above",
+      "3. In Copilot Studio, go to Settings > Connections",
+      "4. Click 'Add connection' and search for 'SharePoint'",
+      "5. Sign in and grant access to the SharePoint site",
+      "6. Name the connection 'sharepoint-connection' and save",
+      "7. Update the siteUrl field in this file with your SharePoint site URL",
+      "8. Update sharePointSiteUrl in settings.json under emailSettings.documentation"
+    ]
+  }
+}

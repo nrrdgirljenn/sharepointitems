@@ -1,0 +1,92 @@
+kind: AdaptiveDialog
+modelDescription: Welcomes users and routes them to the correct email agent feature
+beginDialog:
+  kind: OnConversationStart
+  id: main
+  intent:
+    triggerQueries:
+      - Hi
+      - Hello
+      - Hey
+      - Start
+      - Help
+      - What can you do
+      - Email agent
+      - Email help
+
+  actions:
+    - kind: SendMessage
+      id: welcomeMessage
+      message: |
+        Hello! I'm your **Copilot Email Agent**.
+
+        I monitor your inbox, document every incoming email to a SharePoint log, and send automatic replies so no message goes unacknowledged.
+
+        Here's what I can help you with:
+        - **View email log** - Browse or search your documented emails
+        - **Email summary** - Get a quick summary of recent activity
+        - **Configure auto-reply** - Update your auto-reply message templates
+        - **Manage email rules** - View and adjust the rules that trigger auto-replies
+        - **Toggle auto-reply** - Turn automatic replies on or off
+
+    - kind: Question
+      id: askWhatToDo
+      interruptionPolicy:
+        allowInterruption: true
+      prompt: What would you like to do?
+      variable: init:Topic.UserChoice
+      entity:
+        kind: EmbeddedEntity
+        definition:
+          kind: ClosedListEntity
+          items:
+            - id: viewEmailLog
+              displayName: View email log
+            - id: emailSummary
+              displayName: Get email summary
+            - id: configureAutoReply
+              displayName: Configure auto-reply template
+            - id: manageRules
+              displayName: Manage email rules
+            - id: toggleAutoReply
+              displayName: Toggle auto-reply on/off
+
+    - kind: ConditionGroup
+      id: routeChoice
+      conditions:
+        - id: viewLogRoute
+          condition: =Topic.UserChoice = 'viewEmailLog'
+          actions:
+            - kind: BeginDialog
+              id: gotoViewLog
+              dialog: view-email-log
+
+        - id: summaryRoute
+          condition: =Topic.UserChoice = 'emailSummary'
+          actions:
+            - kind: BeginDialog
+              id: gotoSummary
+              dialog: email-summary
+
+        - id: configureReplyRoute
+          condition: =Topic.UserChoice = 'configureAutoReply'
+          actions:
+            - kind: BeginDialog
+              id: gotoConfigure
+              dialog: configure-auto-reply
+
+        - id: manageRulesRoute
+          condition: =Topic.UserChoice = 'manageRules'
+          actions:
+            - kind: BeginDialog
+              id: gotoRules
+              dialog: manage-email-rules
+
+        - id: toggleRoute
+          condition: =Topic.UserChoice = 'toggleAutoReply'
+          actions:
+            - kind: BeginDialog
+              id: gotoToggle
+              dialog: configure-auto-reply
+              inputParameters:
+                Topic.JumpToToggle: true

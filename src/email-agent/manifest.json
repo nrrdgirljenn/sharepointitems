@@ -1,0 +1,52 @@
+{
+  "$schema": "https://schema.copilotstudio.microsoft.com/agent/v1.0/manifest.schema.json",
+  "name": "CopilotEmailAgent",
+  "displayName": "Copilot Email Agent",
+  "description": "An intelligent agent that documents incoming emails to a SharePoint list and automatically sends context-aware replies based on configurable rules and templates",
+  "version": "1.0.0",
+  "author": "nrrdgirljenn",
+  "icon": "email-agent-icon.png",
+  "primaryLanguage": "en-US",
+  "supportedLanguages": ["en-US"],
+  "capabilities": {
+    "conversational": true,
+    "generativeAI": true,
+    "orchestration": true
+  },
+  "settings": {
+    "enableGenerativeAnswers": true,
+    "enableGenerativeActions": true,
+    "fallbackBehavior": "escalate",
+    "conversationBoostEnabled": true
+  },
+  "connections": [
+    {
+      "id": "outlook-connection",
+      "type": "microsoft365",
+      "displayName": "Office 365 Outlook Connection"
+    },
+    {
+      "id": "sharepoint-connection",
+      "type": "microsoft365",
+      "displayName": "SharePoint Online Connection"
+    }
+  ],
+  "topics": [
+    "topics/welcome.topic.yaml",
+    "topics/configure-auto-reply.topic.yaml",
+    "topics/view-email-log.topic.yaml",
+    "topics/manage-email-rules.topic.yaml",
+    "topics/email-summary.topic.yaml",
+    "topics/fallback.topic.yaml"
+  ],
+  "flows": [
+    "flows/process-incoming-email.flow.json",
+    "flows/get-email-log.flow.json",
+    "flows/update-reply-template.flow.json"
+  ],
+  "knowledgeSources": [],
+  "triggers": {
+    "conversationStart": "topics/welcome.topic.yaml",
+    "unknownIntent": "topics/fallback.topic.yaml"
+  }
+}

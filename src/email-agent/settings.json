@@ -1,0 +1,102 @@
+{
+  "agentSettings": {
+    "name": "CopilotEmailAgent",
+    "schemaVersion": "1.0",
+    "conversationSettings": {
+      "enableSmallTalk": true,
+      "enableGenerativeAnswers": true,
+      "responseStyle": "professional",
+      "maxTurnsPerConversation": 50
+    },
+    "securitySettings": {
+      "requireAuthentication": true,
+      "allowedAuthenticationProviders": ["AzureAD"],
+      "dataResidency": "default"
+    },
+    "emailSettings": {
+      "monitoring": {
+        "enabled": true,
+        "mailboxFolder": "Inbox",
+        "pollingIntervalMinutes": 1,
+        "includeAttachments": true,
+        "importanceFilter": "Any"
+      },
+      "documentation": {
+        "sharePointSiteUrl": "",
+        "sharePointListName": "EmailLog",
+        "fieldsToLog": [
+          "From",
+          "To",
+          "CC",
+          "Subject",
+          "ReceivedTime",
+          "BodyPreview",
+          "HasAttachments",
+          "Importance",
+          "IsRead",
+          "MessageId",
+          "ConversationId",
+          "Category"
+        ],
+        "retentionDays": 90
+      },
+      "autoReply": {
+        "enabled": true,
+        "delaySeconds": 5,
+        "defaultTemplate": "Thank you for your email. I have received your message and will respond as soon as possible.\n\nThis is an automated acknowledgement.\n\nBest regards,\n[Your Name]",
+        "includeOriginalMessage": false,
+        "replyToSender": true,
+        "excludeSenders": [
+          "noreply@*",
+          "donotreply@*",
+          "mailer-daemon@*",
+          "no-reply@*"
+        ],
+        "onlyReplyOnce": true
+      }
+    },
+    "emailRules": {
+      "enabled": true,
+      "rules": [
+        {
+          "id": "rule-001",
+          "name": "Support Requests",
+          "description": "Auto-reply to emails with 'support' or 'help' in the subject",
+          "conditions": {
+            "subjectContains": ["support", "help", "issue", "problem"],
+            "fromDomains": [],
+            "importance": "Any"
+          },
+          "actions": {
+            "document": true,
+            "autoReply": true,
+            "replyTemplate": "Thank you for reaching out to support. Your request has been logged and a team member will be in touch within 1 business day.\n\nRequest Reference: {EmailId}\n\nBest regards,\nSupport Team",
+            "addCategory": "Support Request",
+            "flagForFollowUp": true
+          },
+          "enabled": true,
+          "priority": 1
+        },
+        {
+          "id": "rule-002",
+          "name": "General Inquiries",
+          "description": "Default auto-reply for all other emails",
+          "conditions": {
+            "subjectContains": [],
+            "fromDomains": [],
+            "importance": "Any"
+          },
+          "actions": {
+            "document": true,
+            "autoReply": true,
+            "replyTemplate": "Thank you for your email. I have received your message and will respond as soon as possible.\n\nThis is an automated acknowledgement.\n\nBest regards,\n[Your Name]",
+            "addCategory": "Inbox",
+            "flagForFollowUp": false
+          },
+          "enabled": true,
+          "priority": 99
+        }
+      ]
+    }
+  }
+}

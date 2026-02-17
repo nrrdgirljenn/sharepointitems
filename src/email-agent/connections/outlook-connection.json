@@ -1,0 +1,32 @@
+{
+  "connectionReference": {
+    "id": "outlook-connection",
+    "displayName": "Office 365 Outlook Connection",
+    "description": "Connects to Office 365 Outlook for reading incoming emails and sending auto-replies",
+    "connectorId": "/providers/Microsoft.PowerApps/apis/shared_office365",
+    "type": "microsoft365",
+    "authentication": {
+      "type": "AzureAD",
+      "scopes": [
+        "Mail.Read",
+        "Mail.ReadWrite",
+        "Mail.Send",
+        "MailboxSettings.Read",
+        "MailboxSettings.ReadWrite"
+      ]
+    },
+    "configuration": {
+      "mailboxFolder": "Inbox",
+      "sharedMailboxAddress": "",
+      "useSharedMailbox": false
+    },
+    "setupInstructions": [
+      "1. In Copilot Studio, go to Settings > Connections",
+      "2. Click 'Add connection' and search for 'Office 365 Outlook'",
+      "3. Sign in with the Microsoft 365 account that owns the mailbox to monitor",
+      "4. Grant the requested permissions (Mail.Read, Mail.Send)",
+      "5. Name the connection 'outlook-connection' and save",
+      "6. If monitoring a shared mailbox, enter the shared mailbox address in settings.json under emailSettings.monitoring"
+    ]
+  }
+}
