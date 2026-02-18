@@ -1,0 +1,206 @@
+{
+  "id": "get-ticket-status",
+  "displayName": "Get Ticket Status",
+  "description": "Retrieves the current status and details of a help desk ticket from the SharePoint list by ticket number.",
+  "trigger": {
+    "type": "PowerVirtualAgents",
+    "inputs": {
+      "ticketNumber": {
+        "type": "string",
+        "description": "The ticket number to look up (e.g., HD-1042)",
+        "required": false
+      },
+      "userEmail": {
+        "type": "string",
+        "description": "User email address to retrieve all their open tickets",
+        "required": false
+      }
+    },
+    "outputs": {
+      "found": {
+        "type": "boolean",
+        "description": "Whether the ticket was found"
+      },
+      "ticketNumber": {
+        "type": "string",
+        "description": "The ticket number"
+      },
+      "title": {
+        "type": "string",
+        "description": "Ticket title/summary"
+      },
+      "status": {
+        "type": "string",
+        "description": "Current status of the ticket"
+      },
+      "priority": {
+        "type": "string",
+        "description": "Current priority level"
+      },
+      "category": {
+        "type": "string",
+        "description": "Issue category"
+      },
+      "assignedTeam": {
+        "type": "string",
+        "description": "Team handling the ticket"
+      },
+      "createdDate": {
+        "type": "string",
+        "description": "When the ticket was created"
+      },
+      "slaDeadline": {
+        "type": "string",
+        "description": "SLA deadline for the ticket"
+      },
+      "resolution": {
+        "type": "string",
+        "description": "Resolution details if ticket is resolved"
+      },
+      "allTickets": {
+        "type": "array",
+        "description": "Array of all open tickets for the user (when searching by email)"
+      },
+      "errorMessage": {
+        "type": "string",
+        "description": "Error message if lookup failed"
+      }
+    }
+  },
+  "actions": [
+    {
+      "id": "initVariables",
+      "type": "InitializeVariable",
+      "variables": [
+        { "name": "varFound", "type": "boolean", "value": false },
+        { "name": "varErrorMessage", "type": "string", "value": "" }
+      ]
+    },
+    {
+      "id": "checkLookupType",
+      "type": "Condition",
+      "description": "Check whether to look up by ticket number or by user email",
+      "expression": {
+        "and": [
+          {
+            "not": {
+              "equals": [
+                "@{triggerBody()?['ticketNumber']}",
+                ""
+              ]
+            }
+          }
+        ]
+      },
+      "ifTrue": {
+        "actions": [
+          {
+            "id": "getTicketByNumber",
+            "type": "SharePoint-GetItems",
+            "description": "Query SharePoint list for the specific ticket number",
+            "inputs": {
+              "site": "{YOUR_SHAREPOINT_SITE_URL}",
+              "list": "HelpDeskTickets",
+              "$filter": "@{concat('TicketNumber eq ''', triggerBody()?['ticketNumber'], '''')}",
+              "$top": 1
+            }
+          },
+          {
+            "id": "checkTicketFound",
+            "type": "Condition",
+            "expression": {
+              "greater": [
+                "@{length(body('getTicketByNumber')?['value'])}",
+                0
+              ]
+            },
+            "ifTrue": {
+              "actions": [
+                {
+                  "id": "setFoundTrue",
+                  "type": "SetVariable",
+                  "inputs": { "name": "varFound", "value": true }
+                },
+                {
+                  "id": "returnTicketDetails",
+                  "type": "PowerVirtualAgents-ReturnValues",
+                  "inputs": {
+                    "found": true,
+                    "ticketNumber": "@{body('getTicketByNumber')?['value'][0]?['TicketNumber']}",
+                    "title": "@{body('getTicketByNumber')?['value'][0]?['Title']}",
+                    "status": "@{body('getTicketByNumber')?['value'][0]?['Status']}",
+                    "priority": "@{body('getTicketByNumber')?['value'][0]?['Priority']}",
+                    "category": "@{body('getTicketByNumber')?['value'][0]?['Category']}",
+                    "assignedTeam": "@{body('getTicketByNumber')?['value'][0]?['AssignedTeam']}",
+                    "createdDate": "@{body('getTicketByNumber')?['value'][0]?['Created']}",
+                    "slaDeadline": "@{body('getTicketByNumber')?['value'][0]?['SLADeadline']}",
+                    "resolution": "@{coalesce(body('getTicketByNumber')?['value'][0]?['Resolution'], 'Not yet resolved')}",
+                    "allTickets": [],
+                    "errorMessage": ""
+                  }
+                }
+              ]
+            },
+            "ifFalse": {
+              "actions": [
+                {
+                  "id": "returnNotFound",
+                  "type": "PowerVirtualAgents-ReturnValues",
+                  "inputs": {
+                    "found": false,
+                    "ticketNumber": "@{triggerBody()?['ticketNumber']}",
+                    "title": "",
+                    "status": "",
+                    "priority": "",
+                    "category": "",
+                    "assignedTeam": "",
+                    "createdDate": "",
+                    "slaDeadline": "",
+                    "resolution": "",
+                    "allTickets": [],
+                    "errorMessage": "@{concat('No ticket found with number ', triggerBody()?['ticketNumber'])}"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "ifFalse": {
+        "actions": [
+          {
+            "id": "getUserTickets",
+            "type": "SharePoint-GetItems",
+            "description": "Get all open tickets for the user by email",
+            "inputs": {
+              "site": "{YOUR_SHAREPOINT_SITE_URL}",
+              "list": "HelpDeskTickets",
+              "$filter": "@{concat('SubmittedByEmail eq ''', triggerBody()?['userEmail'], ''' and Status ne ''Closed''')}",
+              "$orderby": "Created desc",
+              "$top": 10
+            }
+          },
+          {
+            "id": "returnUserTickets",
+            "type": "PowerVirtualAgents-ReturnValues",
+            "inputs": {
+              "found": "@{greater(length(body('getUserTickets')?['value']), 0)}",
+              "ticketNumber": "",
+              "title": "",
+              "status": "",
+              "priority": "",
+              "category": "",
+              "assignedTeam": "",
+              "createdDate": "",
+              "slaDeadline": "",
+              "resolution": "",
+              "allTickets": "@{body('getUserTickets')?['value']}",
+              "errorMessage": ""
+            }
+          }
+        ]
+      },
+      "runAfter": ["initVariables"]
+    }
+  ]
+}

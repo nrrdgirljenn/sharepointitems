@@ -1,0 +1,303 @@
+{
+  "id": "create-ticket",
+  "displayName": "Create Help Desk Ticket",
+  "description": "Creates a new ticket in the SharePoint help desk list, assigns a ticket number, calculates SLA deadline, and sends confirmation email to the user.",
+  "trigger": {
+    "type": "PowerVirtualAgents",
+    "inputs": {
+      "userName": {
+        "type": "string",
+        "description": "Full name of the person submitting the ticket",
+        "required": true
+      },
+      "userEmail": {
+        "type": "string",
+        "description": "Email address of the person submitting the ticket",
+        "required": true
+      },
+      "title": {
+        "type": "string",
+        "description": "Short title or summary of the issue",
+        "required": true
+      },
+      "description": {
+        "type": "string",
+        "description": "Detailed description of the issue",
+        "required": true
+      },
+      "category": {
+        "type": "string",
+        "description": "Issue category: Hardware | Software | Network | Account/Access | Other",
+        "required": true
+      },
+      "priority": {
+        "type": "string",
+        "description": "Priority level: Critical | High | Medium | Low",
+        "required": true
+      },
+      "affectedUsers": {
+        "type": "integer",
+        "description": "Number of users affected by the issue",
+        "required": false,
+        "defaultValue": 1
+      }
+    },
+    "outputs": {
+      "ticketNumber": {
+        "type": "string",
+        "description": "The generated ticket number (e.g., HD-1042)"
+      },
+      "ticketId": {
+        "type": "string",
+        "description": "The SharePoint list item ID for the created ticket"
+      },
+      "slaDeadline": {
+        "type": "string",
+        "description": "The SLA deadline date and time for this ticket"
+      },
+      "assignedTeam": {
+        "type": "string",
+        "description": "The team assigned to handle this ticket"
+      },
+      "success": {
+        "type": "boolean",
+        "description": "Whether the ticket was created successfully"
+      },
+      "errorMessage": {
+        "type": "string",
+        "description": "Error message if creation failed"
+      }
+    }
+  },
+  "actions": [
+    {
+      "id": "initVariables",
+      "type": "InitializeVariable",
+      "description": "Initialize flow variables",
+      "variables": [
+        { "name": "varTicketNumber", "type": "string", "value": "" },
+        { "name": "varSuccess", "type": "boolean", "value": false },
+        { "name": "varErrorMessage", "type": "string", "value": "" },
+        { "name": "varSlaHours", "type": "integer", "value": 24 },
+        { "name": "varAssignedTeam", "type": "string", "value": "general-team" }
+      ]
+    },
+    {
+      "id": "getTicketCount",
+      "type": "SharePoint-GetItems",
+      "description": "Get current ticket count to generate next ticket number",
+      "inputs": {
+        "site": "@{triggerBody()?['siteUrl']}",
+        "list": "HelpDeskTickets",
+        "$orderby": "Created desc",
+        "$top": 1
+      },
+      "runAfter": ["initVariables"]
+    },
+    {
+      "id": "generateTicketNumber",
+      "type": "Compose",
+      "description": "Generate a sequential ticket number with HD- prefix",
+      "inputs": "@{concat('HD-', padLeft(string(add(length(body('getTicketCount')?['value']), 1001)), 4, '0'))}",
+      "runAfter": ["getTicketCount"]
+    },
+    {
+      "id": "setTicketNumber",
+      "type": "SetVariable",
+      "inputs": {
+        "name": "varTicketNumber",
+        "value": "@{outputs('generateTicketNumber')}"
+      },
+      "runAfter": ["generateTicketNumber"]
+    },
+    {
+      "id": "setSLAAndTeam",
+      "type": "Switch",
+      "description": "Set SLA hours and assigned team based on category",
+      "expression": "@{triggerBody()?['category']}",
+      "cases": {
+        "Hardware": {
+          "actions": [
+            {
+              "id": "setHardwareSLA",
+              "type": "SetVariable",
+              "inputs": { "name": "varSlaHours", "value": 8 }
+            },
+            {
+              "id": "setHardwareTeam",
+              "type": "SetVariable",
+              "inputs": { "name": "varAssignedTeam", "value": "Hardware Team" }
+            }
+          ]
+        },
+        "Software": {
+          "actions": [
+            {
+              "id": "setSoftwareSLA",
+              "type": "SetVariable",
+              "inputs": { "name": "varSlaHours", "value": 4 }
+            },
+            {
+              "id": "setSoftwareTeam",
+              "type": "SetVariable",
+              "inputs": { "name": "varAssignedTeam", "value": "Software Team" }
+            }
+          ]
+        },
+        "Network": {
+          "actions": [
+            {
+              "id": "setNetworkSLA",
+              "type": "SetVariable",
+              "inputs": { "name": "varSlaHours", "value": 2 }
+            },
+            {
+              "id": "setNetworkTeam",
+              "type": "SetVariable",
+              "inputs": { "name": "varAssignedTeam", "value": "Network Team" }
+            }
+          ]
+        },
+        "Account/Access": {
+          "actions": [
+            {
+              "id": "setAccountSLA",
+              "type": "SetVariable",
+              "inputs": { "name": "varSlaHours", "value": 1 }
+            },
+            {
+              "id": "setAccountTeam",
+              "type": "SetVariable",
+              "inputs": { "name": "varAssignedTeam", "value": "Account & Access Team" }
+            }
+          ]
+        }
+      },
+      "default": {
+        "actions": [
+          {
+            "id": "setDefaultSLA",
+            "type": "SetVariable",
+            "inputs": { "name": "varSlaHours", "value": 24 }
+          },
+          {
+            "id": "setDefaultTeam",
+            "type": "SetVariable",
+            "inputs": { "name": "varAssignedTeam", "value": "General IT Team" }
+          }
+        ]
+      },
+      "runAfter": ["setTicketNumber"]
+    },
+    {
+      "id": "overrideSLAForCritical",
+      "type": "Condition",
+      "description": "Override SLA to 1 hour for Critical priority tickets",
+      "expression": {
+        "and": [
+          {
+            "equals": [
+              "@{triggerBody()?['priority']}",
+              "Critical"
+            ]
+          }
+        ]
+      },
+      "ifTrue": {
+        "actions": [
+          {
+            "id": "setCriticalSLA",
+            "type": "SetVariable",
+            "inputs": { "name": "varSlaHours", "value": 1 }
+          }
+        ]
+      },
+      "runAfter": ["setSLAAndTeam"]
+    },
+    {
+      "id": "calculateSLADeadline",
+      "type": "Compose",
+      "description": "Calculate SLA deadline datetime based on SLA hours",
+      "inputs": "@{addHours(utcNow(), variables('varSlaHours'))}",
+      "runAfter": ["overrideSLAForCritical"]
+    },
+    {
+      "id": "createSharePointTicket",
+      "type": "SharePoint-CreateItem",
+      "description": "Create the ticket in the SharePoint HelpDeskTickets list",
+      "inputs": {
+        "site": "@{triggerBody()?['siteUrl']}",
+        "list": "HelpDeskTickets",
+        "Title": "@{triggerBody()?['title']}",
+        "TicketNumber": "@{variables('varTicketNumber')}",
+        "Description": "@{triggerBody()?['description']}",
+        "Category": "@{triggerBody()?['category']}",
+        "Priority": "@{triggerBody()?['priority']}",
+        "Status": "New",
+        "SubmittedBy": "@{triggerBody()?['userName']}",
+        "SubmittedByEmail": "@{triggerBody()?['userEmail']}",
+        "AssignedTeam": "@{variables('varAssignedTeam')}",
+        "SLADeadline": "@{outputs('calculateSLADeadline')}",
+        "AffectedUsers": "@{coalesce(triggerBody()?['affectedUsers'], 1)}"
+      },
+      "runAfter": ["calculateSLADeadline"]
+    },
+    {
+      "id": "setSuccessTrue",
+      "type": "SetVariable",
+      "inputs": { "name": "varSuccess", "value": true },
+      "runAfter": ["createSharePointTicket"]
+    },
+    {
+      "id": "sendConfirmationEmail",
+      "type": "Office365-SendEmailV2",
+      "description": "Send ticket confirmation email to the user",
+      "inputs": {
+        "to": "@{triggerBody()?['userEmail']}",
+        "subject": "@{concat('✅ Help Desk Ticket Created: ', variables('varTicketNumber'), ' - ', triggerBody()?['title'])}",
+        "body": "<html><body style='font-family:Arial,sans-serif;'><p>Dear @{triggerBody()?['userName']},</p><p>Your help desk request has been received. Here are your ticket details:</p><table border='1' cellpadding='10' style='border-collapse:collapse;width:100%;max-width:600px;'><tr style='background:#0078d4;color:white;'><th colspan='2'>Ticket Summary</th></tr><tr><td><strong>Ticket Number</strong></td><td><strong>@{variables('varTicketNumber')}</strong></td></tr><tr><td><strong>Title</strong></td><td>@{triggerBody()?['title']}</td></tr><tr><td><strong>Category</strong></td><td>@{triggerBody()?['category']}</td></tr><tr><td><strong>Priority</strong></td><td>@{triggerBody()?['priority']}</td></tr><tr><td><strong>Assigned Team</strong></td><td>@{variables('varAssignedTeam')}</td></tr><tr><td><strong>SLA Deadline</strong></td><td>@{outputs('calculateSLADeadline')}</td></tr><tr><td><strong>Status</strong></td><td>New</td></tr></table><p>We will be in touch within the SLA window. To check your ticket status, chat with the IT Help Desk agent and say <em>\"Check ticket @{variables('varTicketNumber')}\"</em>.</p><br/><p>Best regards,<br/><strong>IT Help Desk Team</strong></p></body></html>",
+        "isHtml": true
+      },
+      "runAfter": ["setSuccessTrue"]
+    },
+    {
+      "id": "returnResults",
+      "type": "PowerVirtualAgents-ReturnValues",
+      "description": "Return ticket details back to the Copilot Studio agent",
+      "inputs": {
+        "ticketNumber": "@{variables('varTicketNumber')}",
+        "ticketId": "@{string(body('createSharePointTicket')?['ID'])}",
+        "slaDeadline": "@{outputs('calculateSLADeadline')}",
+        "assignedTeam": "@{variables('varAssignedTeam')}",
+        "success": "@{variables('varSuccess')}",
+        "errorMessage": "@{variables('varErrorMessage')}"
+      },
+      "runAfter": ["sendConfirmationEmail"]
+    }
+  ],
+  "errorHandling": {
+    "scope": "createSharePointTicket",
+    "onFailure": [
+      {
+        "id": "setErrorMessage",
+        "type": "SetVariable",
+        "inputs": {
+          "name": "varErrorMessage",
+          "value": "@{concat('Failed to create ticket: ', body('createSharePointTicket')?['error']?['message'])}"
+        }
+      },
+      {
+        "id": "returnErrorResults",
+        "type": "PowerVirtualAgents-ReturnValues",
+        "inputs": {
+          "ticketNumber": "",
+          "ticketId": "",
+          "slaDeadline": "",
+          "assignedTeam": "",
+          "success": false,
+          "errorMessage": "@{variables('varErrorMessage')}"
+        }
+      }
+    ]
+  }
+}

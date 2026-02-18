@@ -1,0 +1,185 @@
+{
+  "id": "escalate-ticket",
+  "displayName": "Escalate Help Desk Ticket",
+  "description": "Escalates a high or critical priority ticket by updating its status in SharePoint and sending an urgent notification email to IT management.",
+  "trigger": {
+    "type": "PowerVirtualAgents",
+    "inputs": {
+      "ticketNumber": {
+        "type": "string",
+        "description": "The ticket number to escalate",
+        "required": true
+      },
+      "ticketId": {
+        "type": "string",
+        "description": "The SharePoint item ID of the ticket",
+        "required": true
+      },
+      "userName": {
+        "type": "string",
+        "description": "Name of the user who submitted the ticket",
+        "required": true
+      },
+      "userEmail": {
+        "type": "string",
+        "description": "Email of the user who submitted the ticket",
+        "required": true
+      },
+      "title": {
+        "type": "string",
+        "description": "Ticket title",
+        "required": true
+      },
+      "description": {
+        "type": "string",
+        "description": "Ticket description",
+        "required": true
+      },
+      "category": {
+        "type": "string",
+        "description": "Issue category",
+        "required": true
+      },
+      "priority": {
+        "type": "string",
+        "description": "Escalated priority level: Critical | High",
+        "required": true
+      },
+      "affectedUsers": {
+        "type": "integer",
+        "description": "Number of users affected",
+        "required": false,
+        "defaultValue": 1
+      },
+      "escalationReason": {
+        "type": "string",
+        "description": "Additional context about why this is being escalated",
+        "required": false
+      }
+    },
+    "outputs": {
+      "success": {
+        "type": "boolean",
+        "description": "Whether escalation was successful"
+      },
+      "newSlaDeadline": {
+        "type": "string",
+        "description": "Updated SLA deadline after escalation"
+      },
+      "errorMessage": {
+        "type": "string",
+        "description": "Error message if escalation failed"
+      }
+    }
+  },
+  "actions": [
+    {
+      "id": "initVariables",
+      "type": "InitializeVariable",
+      "variables": [
+        { "name": "varSuccess", "type": "boolean", "value": false },
+        { "name": "varErrorMessage", "type": "string", "value": "" },
+        { "name": "varNewSlaHours", "type": "integer", "value": 1 }
+      ]
+    },
+    {
+      "id": "setSLAByPriority",
+      "type": "Switch",
+      "description": "Set new SLA hours based on escalation priority",
+      "expression": "@{triggerBody()?['priority']}",
+      "cases": {
+        "Critical": {
+          "actions": [
+            {
+              "id": "setCriticalSLA",
+              "type": "SetVariable",
+              "inputs": { "name": "varNewSlaHours", "value": 1 }
+            }
+          ]
+        },
+        "High": {
+          "actions": [
+            {
+              "id": "setHighSLA",
+              "type": "SetVariable",
+              "inputs": { "name": "varNewSlaHours", "value": 2 }
+            }
+          ]
+        }
+      },
+      "runAfter": ["initVariables"]
+    },
+    {
+      "id": "calculateNewSLADeadline",
+      "type": "Compose",
+      "inputs": "@{addHours(utcNow(), variables('varNewSlaHours'))}",
+      "runAfter": ["setSLAByPriority"]
+    },
+    {
+      "id": "updateTicketInSharePoint",
+      "type": "SharePoint-UpdateItem",
+      "description": "Update ticket priority, status, and SLA deadline in SharePoint",
+      "inputs": {
+        "site": "{YOUR_SHAREPOINT_SITE_URL}",
+        "list": "HelpDeskTickets",
+        "id": "@{int(triggerBody()?['ticketId'])}",
+        "Priority": "@{triggerBody()?['priority']}",
+        "Status": "Assigned",
+        "SLADeadline": "@{outputs('calculateNewSLADeadline')}"
+      },
+      "runAfter": ["calculateNewSLADeadline"]
+    },
+    {
+      "id": "sendEscalationEmail",
+      "type": "Office365-SendEmailV2",
+      "description": "Send urgent escalation notification to IT management",
+      "inputs": {
+        "to": "it-manager@{YOUR_DOMAIN}",
+        "cc": "it-management@{YOUR_DOMAIN}",
+        "subject": "@{concat('🚨 ESCALATION - ', triggerBody()?['priority'], ' Priority: ', triggerBody()?['ticketNumber'], ' - ', triggerBody()?['title'])}",
+        "body": "<html><body style='font-family:Arial,sans-serif;'><div style='background:#c00;color:white;padding:12px;'><h2 style='margin:0;'>⚠️ ESCALATED TICKET - IMMEDIATE ATTENTION REQUIRED</h2></div><table border='1' cellpadding='10' style='border-collapse:collapse;width:100%;max-width:600px;margin-top:16px;'><tr><td><strong>Ticket Number</strong></td><td><strong>@{triggerBody()?['ticketNumber']}</strong></td></tr><tr><td><strong>Priority</strong></td><td><strong style='color:red;'>@{triggerBody()?['priority']}</strong></td></tr><tr><td><strong>Category</strong></td><td>@{triggerBody()?['category']}</td></tr><tr><td><strong>Title</strong></td><td>@{triggerBody()?['title']}</td></tr><tr><td><strong>Submitted By</strong></td><td>@{triggerBody()?['userName']} (@{triggerBody()?['userEmail']})</td></tr><tr><td><strong>Affected Users</strong></td><td>@{coalesce(triggerBody()?['affectedUsers'], 1)}</td></tr><tr><td><strong>New SLA Deadline</strong></td><td><strong>@{outputs('calculateNewSLADeadline')}</strong></td></tr></table><h3>Description</h3><p>@{triggerBody()?['description']}</p><h3>Escalation Reason</h3><p>@{coalesce(triggerBody()?['escalationReason'], 'High impact or critical business system affected.')}</p><p style='background:#fff3cd;padding:12px;border-left:4px solid #ffc107;'>Please assign a technician immediately and acknowledge this ticket.</p><br/><p>IT Help Desk Triage Agent</p></body></html>",
+        "isHtml": true,
+        "importance": "High"
+      },
+      "runAfter": ["updateTicketInSharePoint"]
+    },
+    {
+      "id": "setSuccessTrue",
+      "type": "SetVariable",
+      "inputs": { "name": "varSuccess", "value": true },
+      "runAfter": ["sendEscalationEmail"]
+    },
+    {
+      "id": "returnResults",
+      "type": "PowerVirtualAgents-ReturnValues",
+      "inputs": {
+        "success": "@{variables('varSuccess')}",
+        "newSlaDeadline": "@{outputs('calculateNewSLADeadline')}",
+        "errorMessage": "@{variables('varErrorMessage')}"
+      },
+      "runAfter": ["setSuccessTrue"]
+    }
+  ],
+  "errorHandling": {
+    "scope": "updateTicketInSharePoint",
+    "onFailure": [
+      {
+        "id": "setErrorMessage",
+        "type": "SetVariable",
+        "inputs": {
+          "name": "varErrorMessage",
+          "value": "@{concat('Failed to escalate ticket: ', body('updateTicketInSharePoint')?['error']?['message'])}"
+        }
+      },
+      {
+        "id": "returnErrorResults",
+        "type": "PowerVirtualAgents-ReturnValues",
+        "inputs": {
+          "success": false,
+          "newSlaDeadline": "",
+          "errorMessage": "@{variables('varErrorMessage')}"
+        }
+      }
+    ]
+  }
+}

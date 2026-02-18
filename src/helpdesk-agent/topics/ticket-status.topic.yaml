@@ -1,0 +1,222 @@
+kind: AdaptiveDialog
+modelDescription: Allows users to check the current status of their existing help desk tickets by ticket number or by email lookup
+id: ticket-status
+displayName: Check Ticket Status
+isEnabled: true
+triggerType: Intent
+
+triggerPhrases:
+  - Check ticket status
+  - What's the status of my ticket
+  - Ticket status
+  - Check my ticket
+  - Where is my ticket
+  - Update on my ticket
+  - HD- lookup
+  - Look up ticket
+  - My open tickets
+  - Show my tickets
+  - Ticket progress
+  - Has my ticket been resolved
+  - When will my issue be fixed
+
+variables:
+  - id: lookupMethod
+    type: string
+    displayName: Lookup Method
+  - id: ticketNumberInput
+    type: string
+    displayName: Ticket Number Input
+  - id: foundTicket
+    type: boolean
+    displayName: Found Ticket
+  - id: resultTicketNumber
+    type: string
+  - id: resultTitle
+    type: string
+  - id: resultStatus
+    type: string
+  - id: resultPriority
+    type: string
+  - id: resultCategory
+    type: string
+  - id: resultAssignedTeam
+    type: string
+  - id: resultCreatedDate
+    type: string
+  - id: resultSlaDeadline
+    type: string
+  - id: resultResolution
+    type: string
+  - id: resultAllTickets
+    type: array
+  - id: lookupError
+    type: string
+
+nodes:
+  - kind: SendMessage
+    id: statusIntroMessage
+    message: "🔍 **Ticket Status Check** — I can look up your ticket(s) right away."
+
+  - kind: Question
+    id: askLookupMethod
+    variable: lookupMethod
+    prompt: "How would you like to look up your ticket?"
+    inputType: choice
+    choices:
+      - text: "🎫 I have a ticket number (e.g., HD-1042)"
+        value: byNumber
+      - text: "📧 Show all my open tickets by email"
+        value: byEmail
+
+  - kind: Branch
+    id: branchLookupMethod
+    condition: Topic.lookupMethod
+
+    branches:
+      - condition: "=Topic.lookupMethod = \"byNumber\""
+        nodes:
+          - kind: Question
+            id: askTicketNumber
+            variable: ticketNumberInput
+            prompt: "Please enter your **ticket number** (e.g., HD-1042):"
+            validations:
+              - type: notEmpty
+                errorMessage: "Please enter a ticket number."
+              - type: regex
+                pattern: "^HD-\\d+"
+                errorMessage: "Ticket numbers start with HD- followed by digits (e.g., HD-1042)."
+          - kind: CallAction
+            id: getTicketByNumberFlow
+            actionId: get-ticket-status
+            inputs:
+              ticketNumber: =Topic.ticketNumberInput
+            outputs:
+              found: =Topic.foundTicket
+              ticketNumber: =Topic.resultTicketNumber
+              title: =Topic.resultTitle
+              status: =Topic.resultStatus
+              priority: =Topic.resultPriority
+              category: =Topic.resultCategory
+              assignedTeam: =Topic.resultAssignedTeam
+              createdDate: =Topic.resultCreatedDate
+              slaDeadline: =Topic.resultSlaDeadline
+              resolution: =Topic.resultResolution
+              errorMessage: =Topic.lookupError
+          - kind: Branch
+            id: checkSingleTicketFound
+            condition: Topic.foundTicket
+            branches:
+              - condition: "=Topic.foundTicket = true"
+                nodes:
+                  - kind: SendMessage
+                    id: showSingleTicket
+                    message: |
+                      Here's the status of your ticket:
+
+                      ---
+                      **{Topic.resultTicketNumber}** — {Topic.resultTitle}
+
+                      | Field | Details |
+                      |-------|---------|
+                      | **Status** | {Topic.resultStatus} |
+                      | **Priority** | {Topic.resultPriority} |
+                      | **Category** | {Topic.resultCategory} |
+                      | **Assigned To** | {Topic.resultAssignedTeam} |
+                      | **Created** | {Topic.resultCreatedDate} |
+                      | **SLA Deadline** | {Topic.resultSlaDeadline} |
+                      | **Resolution** | {Topic.resultResolution} |
+
+              - condition: "=Topic.foundTicket = false"
+                nodes:
+                  - kind: SendMessage
+                    id: ticketNotFound
+                    message: |
+                      ❌ I couldn't find a ticket with number **{Topic.ticketNumberInput}**.
+
+                      Please double-check the number — it should look like *HD-1042*.
+                      If you need help finding your ticket number, check your confirmation email.
+
+      - condition: "=Topic.lookupMethod = \"byEmail\""
+        nodes:
+          - kind: Question
+            id: askEmailForLookup
+            prompt: "Please enter your **work email address** to find all your open tickets:"
+            validations:
+              - type: email
+                errorMessage: "Please enter a valid email address."
+          - kind: CallAction
+            id: getTicketsByEmailFlow
+            actionId: get-ticket-status
+            inputs:
+              userEmail: =System.LastMessage.Text
+            outputs:
+              found: =Topic.foundTicket
+              allTickets: =Topic.resultAllTickets
+              errorMessage: =Topic.lookupError
+          - kind: Branch
+            id: checkTicketsFound
+            condition: Topic.foundTicket
+            branches:
+              - condition: "=Topic.foundTicket = true"
+                nodes:
+                  - kind: SendMessage
+                    id: showAllTickets
+                    message: |
+                      📋 **Your Open Tickets:**
+
+                      Here are your most recent open tickets. To get details on a specific one, ask me to look up the ticket number.
+
+                      *(Your tickets are listed in the ticket confirmation emails you received.)*
+              - condition: "=Topic.foundTicket = false"
+                nodes:
+                  - kind: SendMessage
+                    id: noTicketsFound
+                    message: |
+                      📭 No open tickets found for that email address.
+
+                      If you recently submitted a ticket, it may take a moment to appear.
+                      Would you like to **report a new issue** instead?
+                  - kind: QuickReplies
+                    id: noTicketOptions
+                    replies:
+                      - text: "Yes, report a new issue"
+                        value: newIssue
+                      - text: "No, I'm done"
+                        value: done
+                  - kind: Branch
+                    id: routeNoTicket
+                    condition: System.LastMessage.Text
+                    branches:
+                      - condition: "=System.LastMessage.Text = \"newIssue\""
+                        nodes:
+                          - kind: GotoNode
+                            targetTopic: triage-intake
+
+  - kind: QuickReplies
+    id: postStatusOptions
+    replies:
+      - text: "🔍 Look up another ticket"
+        value: lookupAnother
+      - text: "🛠️ Report a new issue"
+        value: newIssue
+      - text: "👋 I'm done"
+        value: done
+
+  - kind: Branch
+    id: postStatusRoute
+    condition: System.LastMessage.Text
+    branches:
+      - condition: "=System.LastMessage.Text = \"lookupAnother\""
+        nodes:
+          - kind: GotoNode
+            targetTopic: ticket-status
+      - condition: "=System.LastMessage.Text = \"newIssue\""
+        nodes:
+          - kind: GotoNode
+            targetTopic: triage-intake
+      - condition: "=System.LastMessage.Text = \"done\""
+        nodes:
+          - kind: SendMessage
+            message: "Thanks for checking in! Let us know if you need anything else. 👋"
+          - kind: EndConversation

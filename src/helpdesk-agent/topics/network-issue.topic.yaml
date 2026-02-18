@@ -1,0 +1,210 @@
+kind: AdaptiveDialog
+modelDescription: Handles network and connectivity issue triage - high priority due to business impact, offers fast-track escalation for outages
+id: network-issue
+displayName: Network / Connectivity Issue
+isEnabled: true
+triggerType: Intent
+
+triggerPhrases:
+  - Network issue
+  - Can't connect to internet
+  - No internet
+  - Internet not working
+  - VPN not working
+  - Can't connect to VPN
+  - Wi-Fi problem
+  - Network is slow
+  - Can't access network drive
+  - Network drive not available
+  - Network outage
+  - Lost connection
+  - Remote desktop not working
+  - RDP issue
+  - Connectivity issue
+
+variables:
+  - id: networkIssueType
+    type: string
+    displayName: Network Issue Type
+  - id: connectionType
+    type: string
+    displayName: Connection Type
+  - id: isOutage
+    type: boolean
+    displayName: Is Outage
+    defaultValue: false
+  - id: ticketNumber
+    type: string
+  - id: ticketId
+    type: string
+  - id: slaDeadline
+    type: string
+  - id: assignedTeam
+    type: string
+  - id: ticketSuccess
+    type: boolean
+
+nodes:
+  - kind: SendMessage
+    id: networkIntroMessage
+    message: "🌐 **Network / Connectivity Issue** — These are usually high priority. Let me gather the details quickly."
+
+  - kind: Question
+    id: askNetworkIssueType
+    variable: networkIssueType
+    prompt: "What type of connectivity issue are you experiencing?"
+    inputType: choice
+    choices:
+      - text: "🌍 No internet access"
+        value: NoInternet
+      - text: "🔒 VPN won't connect"
+        value: VPN
+      - text: "📶 Wi-Fi issue (can't connect or very slow)"
+        value: WiFi
+      - text: "💾 Can't access network drives or shared folders"
+        value: NetworkDrive
+      - text: "🖥️ Remote Desktop / RDP issue"
+        value: RemoteDesktop
+      - text: "⚠️ Suspected network outage (multiple people affected)"
+        value: Outage
+
+  - kind: Branch
+    id: checkIfOutage
+    condition: Topic.networkIssueType
+    branches:
+      - condition: "=Topic.networkIssueType = \"Outage\""
+        nodes:
+          - kind: SetVariable
+            id: setIsOutage
+            variable: isOutage
+            value: true
+          - kind: SendMessage
+            id: outageUrgentMessage
+            message: |
+              🚨 **Possible Network Outage Detected**
+
+              This will be treated as a **Critical** priority ticket and IT management will be notified immediately.
+
+              Please confirm:
+          - kind: SetVariable
+            id: setOutagePriority
+            variable: autoPriority
+            value: Critical
+
+      - condition: "=Topic.networkIssueType = \"NoInternet\""
+        nodes:
+          - kind: SendMessage
+            id: noInternetTips
+            message: |
+              💡 **Quick steps to try:**
+              1. Check if other devices in the area have internet (to rule out a broader outage)
+              2. Restart your computer
+              3. Try unplugging your network cable and plugging it back in
+              4. Restart your router/modem if accessible
+              5. Try connecting to a different Wi-Fi network if available
+
+      - condition: "=Topic.networkIssueType = \"VPN\""
+        nodes:
+          - kind: SendMessage
+            id: vpnTips
+            message: |
+              💡 **VPN troubleshooting steps:**
+              1. Disconnect and reconnect the VPN client
+              2. Restart your computer
+              3. Ensure you have internet access before connecting VPN
+              4. Check if your VPN password has expired (try logging in via web portal)
+              5. Try a different VPN server/region if your client allows
+
+  - kind: Question
+    id: askConnectionType
+    variable: connectionType
+    prompt: "Are you connecting via **wired (Ethernet cable)** or **wireless (Wi-Fi)**?"
+    inputType: choice
+    choices:
+      - text: "📡 Wireless (Wi-Fi)"
+        value: WiFi
+      - text: "🔌 Wired (Ethernet cable)"
+        value: Wired
+      - text: "🏠 Home / Remote (not on company network)"
+        value: Remote
+
+  - kind: SendMessage
+    id: proceedToTicketMessage
+    message: |
+      Creating a **{Topic.autoPriority} priority** network ticket now.
+
+      The Network Team's SLA for connectivity issues is **2 hours** — they'll be on it quickly.
+
+  - kind: CallAction
+    id: createTicketFlow
+    actionId: create-ticket
+    inputs:
+      userName: =Topic.userName
+      userEmail: =Topic.userEmail
+      title: =Concatenate("Network Issue: ", Topic.networkIssueType, " - ", Topic.issueSummary)
+      description: =Concatenate("Network Issue Type: ", Topic.networkIssueType, "\nConnection Type: ", Topic.connectionType, "\nPossible Outage: ", Text(Topic.isOutage), "\n\nDescription:\n", Topic.issueDescription)
+      category: Network
+      priority: =Topic.autoPriority
+      affectedUsers: =Topic.affectedUsers
+    outputs:
+      ticketNumber: =Topic.ticketNumber
+      ticketId: =Topic.ticketId
+      slaDeadline: =Topic.slaDeadline
+      assignedTeam: =Topic.assignedTeam
+      success: =Topic.ticketSuccess
+
+  - kind: Branch
+    id: checkEscalationNeeded
+    condition: Topic.isOutage
+    branches:
+      - condition: "=Topic.isOutage = true || Topic.autoPriority = \"Critical\""
+        nodes:
+          - kind: CallAction
+            id: escalateTicketFlow
+            actionId: escalate-ticket
+            inputs:
+              ticketNumber: =Topic.ticketNumber
+              ticketId: =Topic.ticketId
+              userName: =Topic.userName
+              userEmail: =Topic.userEmail
+              title: =Concatenate("Network Issue: ", Topic.networkIssueType, " - ", Topic.issueSummary)
+              description: =Topic.issueDescription
+              category: Network
+              priority: Critical
+              affectedUsers: =Topic.affectedUsers
+              escalationReason: Potential network outage affecting multiple users
+          - kind: SendMessage
+            id: escalationConfirmMessage
+            message: |
+              🚨 **Escalated to IT Management**
+
+              Your ticket has been flagged as **Critical** and IT management has been notified immediately.
+
+  - kind: Branch
+    id: checkTicketCreated
+    condition: Topic.ticketSuccess
+    branches:
+      - condition: "=Topic.ticketSuccess = true"
+        nodes:
+          - kind: SendMessage
+            id: ticketCreatedMessage
+            message: |
+              ✅ **Network Ticket Created**
+
+              | | |
+              |---|---|
+              | **Ticket #** | {Topic.ticketNumber} |
+              | **Priority** | {Topic.autoPriority} |
+              | **SLA Deadline** | {Topic.slaDeadline} |
+
+              Confirmation sent to **{Topic.userEmail}**. The Network Team is on it.
+
+          - kind: EndConversation
+
+      - condition: "=Topic.ticketSuccess = false"
+        nodes:
+          - kind: SendMessage
+            message: |
+              ⚠️ Couldn't create the ticket. For urgent network issues, please call IT directly:
+              📞 **{YOUR_HELPDESK_PHONE}**
+          - kind: EndConversation

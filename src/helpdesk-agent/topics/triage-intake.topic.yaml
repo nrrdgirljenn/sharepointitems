@@ -1,0 +1,216 @@
+kind: AdaptiveDialog
+modelDescription: Collects all necessary information to triage an IT help desk request - name, email, issue category, description, and affected user count
+id: triage-intake
+displayName: Triage Intake
+isEnabled: true
+triggerType: Intent
+
+triggerPhrases:
+  - I need help with an IT issue
+  - Report a new issue
+  - Create a ticket
+  - Submit a ticket
+  - Log a ticket
+  - I have a problem
+  - I have an IT problem
+  - I need to report something
+  - Something isn't working
+  - Something broke
+  - I need to open a ticket
+  - New ticket
+  - Help me
+
+variables:
+  - id: userName
+    type: string
+    displayName: User Name
+  - id: userEmail
+    type: string
+    displayName: User Email
+  - id: issueCategory
+    type: string
+    displayName: Issue Category
+  - id: issueSummary
+    type: string
+    displayName: Issue Summary
+  - id: issueDescription
+    type: string
+    displayName: Issue Description
+  - id: affectedUsers
+    type: integer
+    displayName: Number of Affected Users
+    defaultValue: 1
+  - id: cannotWork
+    type: boolean
+    displayName: Cannot Work
+    defaultValue: false
+  - id: autoPriority
+    type: string
+    displayName: Auto-Assigned Priority
+
+nodes:
+  - kind: SendMessage
+    id: startIntakeMessage
+    message: "Let's get your issue sorted. I'll need a few details — this will only take a minute."
+
+  - kind: Question
+    id: askUserName
+    variable: userName
+    prompt: "First, what's your **full name**?"
+    validations:
+      - type: notEmpty
+        errorMessage: "Please enter your full name."
+
+  - kind: Question
+    id: askUserEmail
+    variable: userEmail
+    prompt: "And what's your **work email address**? (We'll send your ticket confirmation here)"
+    validations:
+      - type: email
+        errorMessage: "Please enter a valid email address."
+
+  - kind: Question
+    id: askCategory
+    variable: issueCategory
+    prompt: "What type of issue are you experiencing?"
+    inputType: choice
+    choices:
+      - text: "🖥️ Hardware (computer, monitor, printer, peripherals)"
+        value: Hardware
+      - text: "💻 Software / Applications (errors, crashes, installations)"
+        value: Software
+      - text: "🌐 Network / Connectivity (internet, VPN, Wi-Fi)"
+        value: Network
+      - text: "🔐 Account / Access (password, lockout, permissions)"
+        value: Account/Access
+      - text: "❓ Other / General IT"
+        value: Other
+    validations:
+      - type: notEmpty
+        errorMessage: "Please select a category."
+
+  - kind: Question
+    id: askSummary
+    variable: issueSummary
+    prompt: "In a few words, what's the issue? *(This becomes your ticket title)*\n\nExample: *\"Outlook not opening\"* or *\"Cannot connect to VPN\"*"
+    validations:
+      - type: notEmpty
+        errorMessage: "Please provide a brief summary."
+      - type: maxLength
+        value: 120
+        errorMessage: "Please keep the summary under 120 characters."
+
+  - kind: Question
+    id: askDescription
+    variable: issueDescription
+    prompt: |
+      Please describe the issue in more detail:
+      - What happened?
+      - What were you doing when it occurred?
+      - Any error messages?
+      - What have you already tried?
+    validations:
+      - type: notEmpty
+        errorMessage: "Please provide some details about the issue."
+
+  - kind: Question
+    id: askAffectedUsers
+    variable: affectedUsers
+    prompt: "How many people are affected by this issue?"
+    inputType: choice
+    choices:
+      - text: "Just me"
+        value: 1
+      - text: "2–5 people"
+        value: 3
+      - text: "More than 5 people"
+        value: 10
+      - text: "Entire department / company"
+        value: 50
+
+  - kind: Question
+    id: askCannotWork
+    variable: cannotWork
+    prompt: "Are you **completely unable to work** because of this issue?"
+    inputType: choice
+    choices:
+      - text: "Yes, I cannot do my job right now"
+        value: true
+      - text: "No, I have a workaround or it's partial"
+        value: false
+
+  - kind: SetVariable
+    id: calculatePriority
+    description: Auto-assign priority based on impact rules
+    variable: autoPriority
+    value: |
+      =If(
+        Topic.affectedUsers >= 10,
+        "Critical",
+        If(
+          Topic.affectedUsers >= 3 And Topic.issueCategory = "Network",
+          "Critical",
+          If(
+            Topic.cannotWork = true And (Topic.issueCategory = "Account/Access" Or Topic.issueCategory = "Network"),
+            "High",
+            If(
+              Topic.cannotWork = true,
+              "High",
+              If(
+                Topic.affectedUsers >= 3,
+                "High",
+                If(
+                  Topic.issueCategory = "Network" Or Topic.issueCategory = "Account/Access",
+                  "Medium",
+                  "Low"
+                )
+              )
+            )
+          )
+        )
+      )
+
+  - kind: SendMessage
+    id: showSummaryMessage
+    message: |
+      Here's a summary of your request:
+
+      | Field | Details |
+      |-------|---------|
+      | **Name** | {Topic.userName} |
+      | **Email** | {Topic.userEmail} |
+      | **Category** | {Topic.issueCategory} |
+      | **Summary** | {Topic.issueSummary} |
+      | **Affected Users** | {Topic.affectedUsers} |
+      | **Priority** | {Topic.autoPriority} |
+
+  - kind: Question
+    id: confirmSubmission
+    prompt: "Does this look correct? Ready to submit?"
+    inputType: choice
+    choices:
+      - text: "✅ Yes, submit my ticket"
+        value: submit
+      - text: "✏️ No, let me change something"
+        value: edit
+
+  - kind: Branch
+    id: routeConfirmation
+    condition: System.LastMessage.Text
+
+    branches:
+      - condition: "=System.LastMessage.Text = \"submit\" || System.LastMessage.Text = \"Yes, submit my ticket\""
+        nodes:
+          - kind: GotoNode
+            id: routeToCategory
+            description: Route to category-specific topic for additional guided steps before ticket creation
+            targetTopic: =Topic.issueCategory
+
+      - condition: "=System.LastMessage.Text = \"edit\" || System.LastMessage.Text = \"No, let me change something\""
+        nodes:
+          - kind: SendMessage
+            id: restartMessage
+            message: "No problem! Let's start over. I'll ask you the questions again."
+          - kind: GotoNode
+            id: restartIntake
+            targetTopic: triage-intake

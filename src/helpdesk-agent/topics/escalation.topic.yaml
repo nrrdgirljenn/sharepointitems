@@ -1,0 +1,153 @@
+kind: AdaptiveDialog
+modelDescription: Handles manual escalation requests for existing tickets - upgrades priority to Critical and immediately notifies IT management
+id: escalation
+displayName: Escalate Ticket
+isEnabled: true
+triggerType: Intent
+
+triggerPhrases:
+  - Escalate my ticket
+  - I need to escalate
+  - This is urgent
+  - Critical issue
+  - Business is down
+  - Emergency IT issue
+  - I need someone now
+  - This is stopping production
+  - Entire company is affected
+  - Boss is asking about this
+  - This needs to be escalated
+  - Escalate
+  - Mark as critical
+
+variables:
+  - id: escalateTicketNumber
+    type: string
+    displayName: Escalate Ticket Number
+  - id: escalateTicketId
+    type: string
+    displayName: Escalate Ticket ID
+  - id: escalationReason
+    type: string
+    displayName: Escalation Reason
+  - id: escalateSuccess
+    type: boolean
+  - id: newSlaDeadline
+    type: string
+  - id: escalateError
+    type: string
+
+nodes:
+  - kind: SendMessage
+    id: escalationIntroMessage
+    message: |
+      🚨 **Escalate a Ticket**
+
+      I can immediately escalate a ticket to **Critical** priority and notify IT management.
+
+      Please note: Escalation is for situations where business operations are severely impacted.
+
+  - kind: Question
+    id: askEscalateTicketNumber
+    variable: escalateTicketNumber
+    prompt: "What is the **ticket number** you want to escalate? *(e.g., HD-1042)*"
+    validations:
+      - type: notEmpty
+        errorMessage: "Please provide a ticket number."
+      - type: regex
+        pattern: "^HD-\\d+"
+        errorMessage: "Ticket numbers look like HD-1042."
+
+  - kind: Question
+    id: askEscalationReason
+    variable: escalationReason
+    prompt: |
+      Why does this ticket need to be escalated? Please describe the business impact:
+      *(e.g., "Production systems are down", "All 50 employees cannot work", "Executive meeting in 1 hour")*
+    validations:
+      - type: notEmpty
+        errorMessage: "Please describe the reason for escalation."
+
+  - kind: SendMessage
+    id: confirmEscalation
+    message: |
+      ⚠️ You are about to escalate **{Topic.escalateTicketNumber}** to **Critical** priority.
+
+      This will:
+      - Update the ticket priority to Critical
+      - Set a 1-hour SLA deadline
+      - Send an **immediate email notification** to IT management
+
+  - kind: Question
+    id: confirmEscalationAction
+    prompt: "Confirm escalation?"
+    inputType: choice
+    choices:
+      - text: "🚨 Yes, escalate now"
+        value: confirm
+      - text: "Cancel"
+        value: cancel
+
+  - kind: Branch
+    id: escalationConfirmBranch
+    condition: System.LastMessage.Text
+    branches:
+      - condition: "=System.LastMessage.Text = \"cancel\" || System.LastMessage.Text = \"Cancel\""
+        nodes:
+          - kind: SendMessage
+            id: cancelledMessage
+            message: "Escalation cancelled. Your ticket remains at its current priority."
+          - kind: EndConversation
+
+  - kind: CallAction
+    id: escalateTicketFlowCall
+    actionId: escalate-ticket
+    inputs:
+      ticketNumber: =Topic.escalateTicketNumber
+      ticketId: =Topic.escalateTicketId
+      userName: =Topic.userName
+      userEmail: =Topic.userEmail
+      title: =Topic.issueSummary
+      description: =Topic.issueDescription
+      category: =Topic.issueCategory
+      priority: Critical
+      affectedUsers: =Topic.affectedUsers
+      escalationReason: =Topic.escalationReason
+    outputs:
+      success: =Topic.escalateSuccess
+      newSlaDeadline: =Topic.newSlaDeadline
+      errorMessage: =Topic.escalateError
+
+  - kind: Branch
+    id: checkEscalationResult
+    condition: Topic.escalateSuccess
+    branches:
+      - condition: "=Topic.escalateSuccess = true"
+        nodes:
+          - kind: SendMessage
+            id: escalationSuccessMessage
+            message: |
+              ✅ **Ticket Escalated Successfully**
+
+              | | |
+              |---|---|
+              | **Ticket #** | {Topic.escalateTicketNumber} |
+              | **New Priority** | 🔴 Critical |
+              | **New SLA Deadline** | {Topic.newSlaDeadline} |
+              | **IT Management Notified** | ✅ Yes |
+
+              IT management has been notified and will respond immediately.
+              You'll receive an update at **{Topic.userEmail}**.
+          - kind: EndConversation
+
+      - condition: "=Topic.escalateSuccess = false"
+        nodes:
+          - kind: SendMessage
+            id: escalationFailedMessage
+            message: |
+              ⚠️ I couldn't automatically escalate the ticket. For immediate escalation, contact IT directly:
+              📧 **it-manager@{YOUR_DOMAIN}**
+              📞 **{YOUR_HELPDESK_PHONE}**
+
+              Reference: **{Topic.escalateTicketNumber}** — Reason: {Topic.escalationReason}
+          - kind: EndConversation

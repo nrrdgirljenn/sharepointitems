@@ -1,0 +1,114 @@
+{
+  "name": "HelpdeskTriageAgent",
+  "displayName": "IT Help Desk Triage Agent",
+  "description": "An intelligent triage agent that collects, categorizes, and prioritizes IT help desk requests. Creates tickets, routes issues to the correct team, and escalates critical problems automatically.",
+  "version": "1.0.0",
+  "author": "nrrdgirljenn",
+  "schemaVersion": "1.0",
+  "capabilities": [
+    "conversational",
+    "generativeAI",
+    "orchestration"
+  ],
+  "topics": [
+    {
+      "id": "welcome",
+      "file": "topics/welcome.topic.yaml",
+      "type": "system",
+      "trigger": "conversationStart"
+    },
+    {
+      "id": "triage-intake",
+      "file": "topics/triage-intake.topic.yaml",
+      "type": "custom",
+      "trigger": "intent"
+    },
+    {
+      "id": "hardware-issue",
+      "file": "topics/hardware-issue.topic.yaml",
+      "type": "custom",
+      "trigger": "intent"
+    },
+    {
+      "id": "software-issue",
+      "file": "topics/software-issue.topic.yaml",
+      "type": "custom",
+      "trigger": "intent"
+    },
+    {
+      "id": "network-issue",
+      "file": "topics/network-issue.topic.yaml",
+      "type": "custom",
+      "trigger": "intent"
+    },
+    {
+      "id": "account-access-issue",
+      "file": "topics/account-access-issue.topic.yaml",
+      "type": "custom",
+      "trigger": "intent"
+    },
+    {
+      "id": "ticket-status",
+      "file": "topics/ticket-status.topic.yaml",
+      "type": "custom",
+      "trigger": "intent"
+    },
+    {
+      "id": "escalation",
+      "file": "topics/escalation.topic.yaml",
+      "type": "custom",
+      "trigger": "intent"
+    },
+    {
+      "id": "fallback",
+      "file": "topics/fallback.topic.yaml",
+      "type": "system",
+      "trigger": "unknownIntent"
+    }
+  ],
+  "flows": [
+    {
+      "id": "create-ticket",
+      "file": "flows/create-ticket.flow.json",
+      "displayName": "Create Help Desk Ticket",
+      "description": "Creates a new ticket in the SharePoint help desk list and sends confirmation email"
+    },
+    {
+      "id": "get-ticket-status",
+      "file": "flows/get-ticket-status.flow.json",
+      "displayName": "Get Ticket Status",
+      "description": "Retrieves current status of an existing help desk ticket from SharePoint"
+    },
+    {
+      "id": "escalate-ticket",
+      "file": "flows/escalate-ticket.flow.json",
+      "displayName": "Escalate Ticket",
+      "description": "Escalates a critical or high-priority ticket by notifying IT managers via email and updating ticket priority"
+    }
+  ],
+  "connections": [
+    {
+      "id": "sharepoint-connection",
+      "file": "connections/sharepoint-connection.json",
+      "type": "sharepoint",
+      "displayName": "SharePoint Help Desk List"
+    },
+    {
+      "id": "email-connection",
+      "file": "connections/email-connection.json",
+      "type": "office365outlook",
+      "displayName": "Office 365 Outlook Email"
+    }
+  ],
+  "authentication": {
+    "type": "AzureActiveDirectory",
+    "tenantId": "{YOUR_TENANT_ID}",
+    "clientId": "{YOUR_CLIENT_ID}"
+  },
+  "generativeAI": {
+    "enabled": true,
+    "model": "gpt-4",
+    "fallbackToGenerativeAnswers": true
+  },
+  "publishedChannels": []
+}

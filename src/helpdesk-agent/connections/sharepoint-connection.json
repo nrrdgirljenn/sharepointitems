@@ -1,0 +1,104 @@
+{
+  "id": "sharepoint-connection",
+  "displayName": "SharePoint Help Desk List",
+  "description": "Connects to a SharePoint list used as the help desk ticketing system",
+  "connectorType": "shared_sharepointonline",
+  "authentication": {
+    "type": "OAuth2",
+    "provider": "AzureActiveDirectory",
+    "scopes": [
+      "Sites.ReadWrite.All",
+      "Lists.ReadWrite.All"
+    ]
+  },
+  "configuration": {
+    "siteUrl": "{YOUR_SHAREPOINT_SITE_URL}",
+    "listName": "HelpDeskTickets"
+  },
+  "operations": [
+    {
+      "id": "createTicket",
+      "operationId": "CreateItem",
+      "displayName": "Create new ticket",
+      "description": "Creates a new help desk ticket item in the SharePoint list",
+      "parameters": {
+        "dataset": "{siteUrl}",
+        "table": "{listName}",
+        "item": {
+          "TicketNumber": "string (auto-generated)",
+          "Title": "string (required)",
+          "Description": "string (required)",
+          "Category": "string (required) - Hardware | Software | Network | Account/Access | Other",
+          "Priority": "string (required) - Critical | High | Medium | Low",
+          "Status": "string (default: New)",
+          "SubmittedBy": "string (required)",
+          "SubmittedByEmail": "string (required)",
+          "AssignedTeam": "string (auto-assigned based on category)",
+          "SLADeadline": "datetime (calculated from priority SLA)",
+          "AffectedUsers": "number (optional, default: 1)"
+        }
+      }
+    },
+    {
+      "id": "getTicket",
+      "operationId": "GetItem",
+      "displayName": "Get ticket by ID",
+      "description": "Retrieves a specific ticket from the SharePoint list",
+      "parameters": {
+        "dataset": "{siteUrl}",
+        "table": "{listName}",
+        "id": "integer (SharePoint item ID)"
+      }
+    },
+    {
+      "id": "getTicketByNumber",
+      "operationId": "GetItems",
+      "displayName": "Get ticket by ticket number",
+      "description": "Queries the SharePoint list to find a ticket by its ticket number (e.g., HD-1042)",
+      "parameters": {
+        "dataset": "{siteUrl}",
+        "table": "{listName}",
+        "$filter": "TicketNumber eq '{ticketNumber}'"
+      }
+    },
+    {
+      "id": "updateTicket",
+      "operationId": "PatchItem",
+      "displayName": "Update ticket",
+      "description": "Updates an existing ticket in the SharePoint list",
+      "parameters": {
+        "dataset": "{siteUrl}",
+        "table": "{listName}",
+        "id": "integer (SharePoint item ID)",
+        "item": {
+          "Status": "string (optional)",
+          "Priority": "string (optional)",
+          "AssignedTeam": "string (optional)",
+          "Resolution": "string (optional)",
+          "ResolvedDate": "datetime (optional)"
+        }
+      }
+    },
+    {
+      "id": "getUserTickets",
+      "operationId": "GetItems",
+      "displayName": "Get tickets for a user",
+      "description": "Retrieves all open tickets submitted by a specific user",
+      "parameters": {
+        "dataset": "{siteUrl}",
+        "table": "{listName}",
+        "$filter": "SubmittedByEmail eq '{userEmail}' and Status ne 'Closed'",
+        "$orderby": "Created desc",
+        "$top": 10
+      }
+    }
+  ],
+  "setupInstructions": {
+    "step1": "Navigate to your SharePoint site",
+    "step2": "Create a new list named 'HelpDeskTickets'",
+    "step3": "Add the following columns to the list: TicketNumber (Single line of text), Description (Multiple lines of text), Category (Choice), Priority (Choice), Status (Choice), SubmittedBy (Single line of text), SubmittedByEmail (Single line of text), AssignedTeam (Single line of text), SLADeadline (Date and Time), AffectedUsers (Number), Resolution (Multiple lines of text), ResolvedDate (Date and Time)",
+    "step4": "In Copilot Studio, go to Settings > Connections",
+    "step5": "Add a new SharePoint connection and sign in with your Microsoft 365 account",
+    "step6": "Update the siteUrl in settings.json with your SharePoint site URL"
+  }
+}

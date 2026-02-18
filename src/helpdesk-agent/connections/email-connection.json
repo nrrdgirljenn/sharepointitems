@@ -1,0 +1,67 @@
+{
+  "id": "email-connection",
+  "displayName": "Office 365 Outlook Email",
+  "description": "Sends ticket confirmation and escalation emails via Office 365 Outlook",
+  "connectorType": "shared_office365",
+  "authentication": {
+    "type": "OAuth2",
+    "provider": "AzureActiveDirectory",
+    "scopes": [
+      "Mail.Send",
+      "Mail.Send.Shared"
+    ]
+  },
+  "operations": [
+    {
+      "id": "sendConfirmationEmail",
+      "operationId": "SendEmailV2",
+      "displayName": "Send ticket confirmation email",
+      "description": "Sends a confirmation email to the user when their ticket is created",
+      "parameters": {
+        "emailMessage": {
+          "To": "{userEmail}",
+          "Subject": "Help Desk Ticket Created: {ticketNumber} - {title}",
+          "Body": "<html><body><p>Dear {userName},</p><p>Your help desk request has been received and a ticket has been created.</p><table border='1' cellpadding='8' style='border-collapse:collapse;'><tr><th>Ticket Number</th><td><strong>{ticketNumber}</strong></td></tr><tr><th>Title</th><td>{title}</td></tr><tr><th>Category</th><td>{category}</td></tr><tr><th>Priority</th><td>{priority}</td></tr><tr><th>Status</th><td>New</td></tr><tr><th>Assigned Team</th><td>{assignedTeam}</td></tr><tr><th>SLA Deadline</th><td>{slaDeadline}</td></tr></table><p>Our team will contact you within the SLA window. You can check the status of your ticket at any time by chatting with the Help Desk agent and providing your ticket number.</p><p>If your situation becomes more urgent, please reply to this email or contact us directly.</p><br/><p>Best regards,<br/>IT Help Desk Team</p></body></html>",
+          "IsHtml": true
+        }
+      }
+    },
+    {
+      "id": "sendEscalationEmail",
+      "operationId": "SendEmailV2",
+      "displayName": "Send escalation email to IT management",
+      "description": "Notifies IT management of a critical or high-priority ticket requiring immediate attention",
+      "parameters": {
+        "emailMessage": {
+          "To": "{itManagerEmail}",
+          "CC": "{itManagerGroup}",
+          "Subject": "🚨 ESCALATION - {priority} Priority Ticket: {ticketNumber} - {title}",
+          "Body": "<html><body><p><strong>⚠️ This ticket requires immediate attention.</strong></p><table border='1' cellpadding='8' style='border-collapse:collapse;'><tr><th>Ticket Number</th><td><strong>{ticketNumber}</strong></td></tr><tr><th>Title</th><td>{title}</td></tr><tr><th>Priority</th><td><strong style='color:red;'>{priority}</strong></td></tr><tr><th>Category</th><td>{category}</td></tr><tr><th>Submitted By</th><td>{userName} ({userEmail})</td></tr><tr><th>Affected Users</th><td>{affectedUsers}</td></tr><tr><th>SLA Deadline</th><td>{slaDeadline}</td></tr><tr><th>Description</th><td>{description}</td></tr></table><p>Please assign a technician and acknowledge this ticket as soon as possible.</p><br/><p>IT Help Desk Triage Agent</p></body></html>",
+          "IsHtml": true,
+          "Importance": "High"
+        }
+      }
+    },
+    {
+      "id": "sendResolutionEmail",
+      "operationId": "SendEmailV2",
+      "displayName": "Send ticket resolution email",
+      "description": "Notifies the user when their ticket has been resolved",
+      "parameters": {
+        "emailMessage": {
+          "To": "{userEmail}",
+          "Subject": "Help Desk Ticket Resolved: {ticketNumber} - {title}",
+          "Body": "<html><body><p>Dear {userName},</p><p>Your help desk ticket has been resolved.</p><table border='1' cellpadding='8' style='border-collapse:collapse;'><tr><th>Ticket Number</th><td><strong>{ticketNumber}</strong></td></tr><tr><th>Title</th><td>{title}</td></tr><tr><th>Resolution</th><td>{resolution}</td></tr><tr><th>Resolved Date</th><td>{resolvedDate}</td></tr></table><p>If you are not satisfied with the resolution or the issue persists, please reply to this email or open a new ticket.</p><br/><p>Best regards,<br/>IT Help Desk Team</p></body></html>",
+          "IsHtml": true
+        }
+      }
+    }
+  ],
+  "setupInstructions": {
+    "step1": "In Copilot Studio, go to Settings > Connections",
+    "step2": "Add a new Office 365 Outlook connection",
+    "step3": "Sign in with the help desk service account (e.g., helpdesk@yourdomain.com)",
+    "step4": "Update emailSettings in settings.json with the correct email addresses",
+    "step5": "Ensure the service account has Send As permissions if sending on behalf of a shared mailbox"
+  }
+}

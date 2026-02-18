@@ -1,4 +1,105 @@
-# Daily Project Checklist Agent
+# Copilot Studio Agents
+
+This repository contains two Copilot Studio agents for Microsoft 365 environments.
+
+---
+
+## Agent 1: IT Help Desk Triage Agent
+
+An intelligent triage agent that collects, categorizes, prioritizes, and tickets IT help desk requests. It guides users through structured intake, offers self-service troubleshooting tips, creates tickets in a SharePoint list, and auto-escalates critical issues to IT management.
+
+### Features
+
+- **Smart Triage Intake**: Collects issue category, description, affected users, and work-blocking status
+- **Auto-Priority Assignment**: Automatically calculates Critical / High / Medium / Low priority based on impact rules
+- **Category-Specific Flows**: Tailored conversation paths for Hardware, Software, Network, Account/Access, and General IT
+- **Self-Service Guidance**: Offers troubleshooting steps before submitting a ticket
+- **Automatic Ticket Creation**: Creates tickets in a SharePoint list with ticket number, SLA deadline, and assigned team
+- **Email Confirmation**: Sends a formatted confirmation email to the user on ticket creation
+- **Auto-Escalation**: For Critical issues, immediately notifies IT management via email
+- **Ticket Status Lookup**: Users can check their ticket status by ticket number or email
+
+### Triage Categories & SLAs
+
+| Category | Assigned Team | SLA |
+|---|---|---|
+| 🖥️ Hardware | Hardware Team | 8 hours |
+| 💻 Software / Applications | Software Team | 4 hours |
+| 🌐 Network / Connectivity | Network Team | 2 hours |
+| 🔐 Account / Access | Account & Access Team | 1 hour |
+| ❓ General IT | General IT Team | 24 hours |
+
+### Priority Levels
+
+| Priority | Auto-Assigned When | SLA | Escalate? |
+|---|---|---|---|
+| 🔴 Critical | 10+ users affected, or network outage | 1 hour | Yes |
+| 🟠 High | Cannot work + account/network issue | 2 hours | No |
+| 🟡 Medium | Partial impact, workaround available | 8 hours | No |
+| 🟢 Low | Minor issue, general question | 24 hours | No |
+
+### Help Desk Agent Structure
+
+```
+src/helpdesk-agent/
+├── manifest.json              # Agent manifest and configuration
+├── settings.json              # Triage rules, priority settings, SLA config
+├── topics/
+│   ├── welcome.topic.yaml            # Greeting and main menu
+│   ├── triage-intake.topic.yaml      # Core intake: name, email, category, description
+│   ├── hardware-issue.topic.yaml     # Hardware-specific triage + self-service tips
+│   ├── software-issue.topic.yaml     # Software/app-specific triage
+│   ├── network-issue.topic.yaml      # Network/VPN triage + outage detection
+│   ├── account-access-issue.topic.yaml  # Password, lockout, MFA, permissions
+│   ├── ticket-status.topic.yaml      # Look up ticket by number or email
+│   ├── escalation.topic.yaml         # Manual escalation to Critical
+│   └── fallback.topic.yaml           # Unknown intent handler
+├── connections/
+│   ├── sharepoint-connection.json    # SharePoint HelpDeskTickets list
+│   └── email-connection.json         # Office 365 Outlook for notifications
+└── flows/
+    ├── create-ticket.flow.json       # Creates ticket + sends confirmation email
+    ├── get-ticket-status.flow.json   # Retrieves ticket status from SharePoint
+    └── escalate-ticket.flow.json     # Escalates ticket + notifies IT management
+```
+
+### Setup Prerequisites (Help Desk Agent)
+
+- Microsoft 365 account with SharePoint and Outlook access
+- Copilot Studio license
+- Power Automate (included with Microsoft 365)
+
+### Quick Setup (Help Desk Agent)
+
+1. **Create SharePoint list**: Create a list named `HelpDeskTickets` on your SharePoint site with the required columns (see `connections/sharepoint-connection.json` for full column list)
+2. **Configure settings**: Update `settings.json` and `connections/sharepoint-connection.json` with your SharePoint site URL
+3. **Update email settings**: Set your help desk email and IT manager email addresses in `settings.json`
+4. **Import to Copilot Studio**: Import the `manifest.json` and create the three Power Automate flows
+5. **Connect SharePoint and Outlook**: Add the connections in Copilot Studio under Settings > Connections
+6. **Test and publish**: Test in the Copilot Studio test pane, then publish to Teams or your website
+
+For full step-by-step instructions, see `docs/HELPDESK_SETUP_GUIDE.md`.
+
+### Usage Examples (Help Desk Agent)
+
+**Report an issue:**
+- "I need IT help"
+- "My computer isn't working"
+- "I can't connect to VPN"
+- "I'm locked out of my account"
+
+**Check ticket status:**
+- "Check ticket HD-1042"
+- "What's the status of my ticket?"
+- "Show my open tickets"
+
+**Escalate:**
+- "Escalate my ticket"
+- "This is critical, the whole company is down"
+
+---
+
+## Agent 2: Daily Project Checklist Agent
 
 A Copilot Studio agent that helps you build and manage your daily project checklist by aggregating tasks from **Notion** and **Microsoft Planner**.
 
@@ -10,7 +111,7 @@ A Copilot Studio agent that helps you build and manage your daily project checkl
 - **Real-time Sync**: Always get the latest tasks from your connected services
 - **Natural Language Interface**: Just ask for your checklist in plain English
 
-## Project Structure
+### Daily Checklist Agent Structure
 
 ```
 src/agent/

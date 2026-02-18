@@ -1,0 +1,167 @@
+{
+  "agentSettings": {
+    "conversationSettings": {
+      "enableSmallTalk": false,
+      "enableGenerativeAnswers": true,
+      "responseStyle": "professional",
+      "maxTurnsPerSession": 30,
+      "sessionTimeoutMinutes": 15,
+      "endConversationOnResolution": false
+    },
+    "securitySettings": {
+      "authenticationRequired": false,
+      "dataResidency": "UnitedStates",
+      "allowAnonymousUsers": true,
+      "logConversations": true
+    }
+  },
+  "triageSettings": {
+    "categories": [
+      {
+        "id": "hardware",
+        "displayName": "Hardware",
+        "description": "Physical device issues: computers, monitors, printers, peripherals",
+        "icon": "🖥️",
+        "defaultPriority": "medium",
+        "assignedTeam": "hardware-team",
+        "slaHours": 8
+      },
+      {
+        "id": "software",
+        "displayName": "Software / Applications",
+        "description": "Application errors, crashes, installation, licensing",
+        "icon": "💻",
+        "defaultPriority": "medium",
+        "assignedTeam": "software-team",
+        "slaHours": 4
+      },
+      {
+        "id": "network",
+        "displayName": "Network / Connectivity",
+        "description": "Internet, VPN, Wi-Fi, network drives, connectivity issues",
+        "icon": "🌐",
+        "defaultPriority": "high",
+        "assignedTeam": "network-team",
+        "slaHours": 2
+      },
+      {
+        "id": "account-access",
+        "displayName": "Account / Access",
+        "description": "Password resets, account lockouts, permissions, MFA issues",
+        "icon": "🔐",
+        "defaultPriority": "high",
+        "assignedTeam": "account-team",
+        "slaHours": 1
+      },
+      {
+        "id": "other",
+        "displayName": "Other / General IT",
+        "description": "Any other IT issue not covered above",
+        "icon": "❓",
+        "defaultPriority": "low",
+        "assignedTeam": "general-team",
+        "slaHours": 24
+      }
+    ],
+    "priorityLevels": [
+      {
+        "id": "critical",
+        "displayName": "Critical",
+        "description": "Complete work stoppage affecting multiple users or business-critical systems",
+        "icon": "🔴",
+        "slaHours": 1,
+        "autoEscalate": true,
+        "notifyManagement": true
+      },
+      {
+        "id": "high",
+        "displayName": "High",
+        "description": "Significant impact on work productivity for one or more users",
+        "icon": "🟠",
+        "slaHours": 2,
+        "autoEscalate": false,
+        "notifyManagement": false
+      },
+      {
+        "id": "medium",
+        "displayName": "Medium",
+        "description": "Moderate impact, workaround available",
+        "icon": "🟡",
+        "slaHours": 8,
+        "autoEscalate": false,
+        "notifyManagement": false
+      },
+      {
+        "id": "low",
+        "displayName": "Low",
+        "description": "Minor issue or general question, minimal impact",
+        "icon": "🟢",
+        "slaHours": 24,
+        "autoEscalate": false,
+        "notifyManagement": false
+      }
+    ],
+    "ticketSettings": {
+      "ticketPrefix": "HD",
+      "autoGenerateTicketNumber": true,
+      "sendConfirmationEmail": true,
+      "confirmationEmailTemplate": "HelpdeskConfirmation",
+      "escalationEmailTemplate": "HelpdeskEscalation"
+    },
+    "priorityAutoAssignment": {
+      "enabled": true,
+      "rules": [
+        {
+          "condition": "affectedUsers > 5",
+          "assignPriority": "critical"
+        },
+        {
+          "condition": "category == 'network' AND affectedUsers > 1",
+          "assignPriority": "critical"
+        },
+        {
+          "condition": "category == 'account-access' AND cannotWork == true",
+          "assignPriority": "high"
+        },
+        {
+          "condition": "category == 'network' AND cannotWork == true",
+          "assignPriority": "high"
+        }
+      ]
+    }
+  },
+  "sharePointSettings": {
+    "siteUrl": "{YOUR_SHAREPOINT_SITE_URL}",
+    "listName": "HelpDeskTickets",
+    "columns": {
+      "ticketNumber": "TicketNumber",
+      "title": "Title",
+      "description": "Description",
+      "category": "Category",
+      "priority": "Priority",
+      "status": "Status",
+      "submittedBy": "SubmittedBy",
+      "submittedByEmail": "SubmittedByEmail",
+      "assignedTeam": "AssignedTeam",
+      "createdDate": "Created",
+      "resolvedDate": "ResolvedDate",
+      "slaDeadline": "SLADeadline",
+      "affectedUsers": "AffectedUsers",
+      "resolution": "Resolution"
+    },
+    "statusValues": [
+      "New",
+      "Assigned",
+      "In Progress",
+      "Pending User",
+      "Resolved",
+      "Closed"
+    ]
+  },
+  "emailSettings": {
+    "fromAddress": "helpdesk@{YOUR_DOMAIN}",
+    "itManagerEmail": "it-manager@{YOUR_DOMAIN}",
+    "itManagerGroup": "it-management@{YOUR_DOMAIN}",
+    "supportSignature": "IT Help Desk Team"
+  }
+}

@@ -1,0 +1,83 @@
+kind: AdaptiveDialog
+modelDescription: Welcome topic for IT Help Desk Triage Agent - greets users and presents available actions
+id: welcome
+displayName: Welcome / Greeting
+isEnabled: true
+triggerType: ConversationStart
+
+triggerPhrases:
+  - Hi
+  - Hello
+  - Hey
+  - Good morning
+  - Good afternoon
+  - Good evening
+  - Help
+  - I need help
+  - I have an issue
+  - Something is broken
+  - IT help
+  - Help desk
+  - I need IT support
+  - Tech support
+  - Support
+  - Start
+
+nodes:
+  - kind: SendMessage
+    id: welcomeMessage
+    message: |
+      👋 Welcome to the **IT Help Desk**!
+
+      I'm here to help you report and triage IT issues quickly.
+      I'll collect the details of your problem and create a support ticket right away.
+
+      What can I help you with today?
+
+  - kind: QuickReplies
+    id: mainMenuOptions
+    message: "Please choose an option:"
+    replies:
+      - text: "🛠️ Report a new issue"
+        value: reportNewIssue
+      - text: "🔍 Check ticket status"
+        value: checkTicketStatus
+      - text: "❓ What can you help with?"
+        value: showCapabilities
+
+  - kind: Branch
+    id: routeFromMainMenu
+    condition: System.LastMessage.Text
+
+    branches:
+      - condition: "=System.LastMessage.Text = \"reportNewIssue\" || System.LastMessage.Text = \"Report a new issue\""
+        nodes:
+          - kind: GotoNode
+            id: gotoTriageIntake
+            targetTopic: triage-intake
+
+      - condition: "=System.LastMessage.Text = \"checkTicketStatus\" || System.LastMessage.Text = \"Check ticket status\""
+        nodes:
+          - kind: GotoNode
+            id: gotoTicketStatus
+            targetTopic: ticket-status
+
+      - condition: "=System.LastMessage.Text = \"showCapabilities\" || System.LastMessage.Text = \"What can you help with?\""
+        nodes:
+          - kind: SendMessage
+            id: capabilitiesMessage
+            message: |
+              Here's what I can help you with:
+
+              🖥️ **Hardware** - Computer, monitor, printer, keyboard/mouse issues
+              💻 **Software** - Application errors, crashes, installation, licensing
+              🌐 **Network** - Internet, VPN, Wi-Fi, network drive problems
+              🔐 **Account & Access** - Password resets, account lockouts, MFA issues
+              ❓ **General IT** - Any other IT request or question
+
+              I'll collect your issue details, assign a priority, and create a ticket — automatically notifying the right team.
+
+              For **Critical issues** (affecting multiple users or business systems), I'll immediately escalate to IT management.
+          - kind: GotoNode
+            id: gotoTriageAfterCapabilities
+            targetTopic: triage-intake

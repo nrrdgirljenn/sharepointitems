@@ -1,0 +1,187 @@
+kind: AdaptiveDialog
+modelDescription: Handles software and application issue triage - collects app name, error details, and offers self-service steps before creating a ticket
+id: software-issue
+displayName: Software / Application Issue
+isEnabled: true
+triggerType: Intent
+
+triggerPhrases:
+  - Software issue
+  - Application problem
+  - App not working
+  - Program won't open
+  - Software crashed
+  - Error message
+  - Application error
+  - Office not working
+  - Outlook issue
+  - Teams not working
+  - Excel crashing
+  - Browser problem
+  - Can't install software
+  - License issue
+  - Software license expired
+
+variables:
+  - id: applicationName
+    type: string
+    displayName: Application Name
+  - id: errorMessage
+    type: string
+    displayName: Error Message
+  - id: issueType
+    type: string
+    displayName: Software Issue Type
+  - id: ticketNumber
+    type: string
+  - id: ticketId
+    type: string
+  - id: slaDeadline
+    type: string
+  - id: assignedTeam
+    type: string
+  - id: ticketSuccess
+    type: boolean
+
+nodes:
+  - kind: SendMessage
+    id: softwareIntroMessage
+    message: "💻 **Software / Application Issue** — Let me get a few more details."
+
+  - kind: Question
+    id: askApplicationName
+    variable: applicationName
+    prompt: "Which **application or software** is having the issue? *(e.g., Microsoft Outlook, Teams, Excel, Chrome, QuickBooks)*"
+    validations:
+      - type: notEmpty
+        errorMessage: "Please enter the name of the application."
+
+  - kind: Question
+    id: askSoftwareIssueType
+    variable: issueType
+    prompt: "What type of issue is it?"
+    inputType: choice
+    choices:
+      - text: "🔴 Application won't open / keeps crashing"
+        value: Crash
+      - text: "⚠️ Error message on screen"
+        value: ErrorMessage
+      - text: "🐢 Application is very slow / freezing"
+        value: Performance
+      - text: "🔑 Can't log in / license issue"
+        value: License
+      - text: "📦 Need to install / update application"
+        value: Installation
+      - text: "❓ Other software issue"
+        value: Other
+
+  - kind: Branch
+    id: branchOnIssueType
+    condition: Topic.issueType
+
+    branches:
+      - condition: "=Topic.issueType = \"ErrorMessage\""
+        nodes:
+          - kind: Question
+            id: askErrorMessage
+            variable: errorMessage
+            prompt: "What does the **error message** say? *(Copy and paste the exact text if you can)*"
+            validations:
+              - type: notEmpty
+                errorMessage: "Please enter the error message text."
+
+      - condition: "=Topic.issueType = \"Crash\""
+        nodes:
+          - kind: SendMessage
+            id: crashTips
+            message: |
+              💡 **Quick steps to try for a crashing application:**
+              1. **Close and reopen** the application
+              2. **Restart your computer** to clear temporary files
+              3. Check if the application needs a **pending Windows Update**
+              4. Try **right-clicking the application** → *Run as administrator*
+
+      - condition: "=Topic.issueType = \"License\""
+        nodes:
+          - kind: SendMessage
+            id: licenseInfo
+            message: |
+              🔑 **License / Login issues** are typically resolved quickly.
+              Our Software Team will verify your license assignment and reset access if needed.
+              This is usually a **High priority** item.
+
+  - kind: SendMessage
+    id: proceedToTicketMessage
+    message: |
+      Creating a ticket for your **{Topic.applicationName}** issue now.
+
+      The Software Team will review and respond within **4 business hours**.
+
+  - kind: CallAction
+    id: createTicketFlow
+    actionId: create-ticket
+    inputs:
+      userName: =Topic.userName
+      userEmail: =Topic.userEmail
+      title: =Concatenate(Topic.applicationName, " - ", Topic.issueSummary)
+      description: =Concatenate("Application: ", Topic.applicationName, "\nIssue Type: ", Topic.issueType, "\nError Message: ", Coalesce(Topic.errorMessage, "N/A"), "\n\nDescription:\n", Topic.issueDescription)
+      category: Software
+      priority: =Topic.autoPriority
+      affectedUsers: =Topic.affectedUsers
+    outputs:
+      ticketNumber: =Topic.ticketNumber
+      ticketId: =Topic.ticketId
+      slaDeadline: =Topic.slaDeadline
+      assignedTeam: =Topic.assignedTeam
+      success: =Topic.ticketSuccess
+
+  - kind: Branch
+    id: checkTicketCreated
+    condition: Topic.ticketSuccess
+    branches:
+      - condition: "=Topic.ticketSuccess = true"
+        nodes:
+          - kind: SendMessage
+            id: ticketCreatedMessage
+            message: |
+              ✅ **Ticket Created Successfully!**
+
+              | | |
+              |---|---|
+              | **Ticket #** | {Topic.ticketNumber} |
+              | **Application** | {Topic.applicationName} |
+              | **Priority** | {Topic.autoPriority} |
+              | **Assigned To** | {Topic.assignedTeam} |
+              | **SLA Deadline** | {Topic.slaDeadline} |
+
+              Confirmation sent to **{Topic.userEmail}**. Is there anything else I can help you with?
+
+          - kind: QuickReplies
+            id: postTicketOptions
+            replies:
+              - text: "Report another issue"
+                value: anotherIssue
+              - text: "No, I'm done"
+                value: done
+          - kind: Branch
+            id: postTicketRoute
+            condition: System.LastMessage.Text
+            branches:
+              - condition: "=System.LastMessage.Text = \"anotherIssue\""
+                nodes:
+                  - kind: GotoNode
+                    targetTopic: triage-intake
+              - condition: "=System.LastMessage.Text = \"done\""
+                nodes:
+                  - kind: SendMessage
+                    message: "Thanks! We'll get that sorted for you. 👋"
+                  - kind: EndConversation
+
+      - condition: "=Topic.ticketSuccess = false"
+        nodes:
+          - kind: SendMessage
+            id: ticketFailedMessage
+            message: |
+              ⚠️ Couldn't create the ticket automatically. Please contact IT directly:
+              📧 **helpdesk@{YOUR_DOMAIN}** | 📞 **{YOUR_HELPDESK_PHONE}**
+          - kind: EndConversation

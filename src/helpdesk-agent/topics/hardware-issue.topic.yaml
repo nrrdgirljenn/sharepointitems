@@ -1,0 +1,213 @@
+kind: AdaptiveDialog
+modelDescription: Handles hardware issue triage - collects specific hardware details and self-service troubleshooting steps before creating a ticket
+id: hardware-issue
+displayName: Hardware Issue
+isEnabled: true
+triggerType: Intent
+
+triggerPhrases:
+  - Hardware issue
+  - Computer problem
+  - My computer isn't working
+  - Monitor not working
+  - Printer not working
+  - Keyboard broken
+  - Mouse not working
+  - Screen issue
+  - Display problem
+  - Hardware broken
+  - Device not working
+  - My laptop is broken
+  - Desktop not turning on
+  - Hardware malfunction
+
+variables:
+  - id: hardwareType
+    type: string
+    displayName: Hardware Type
+  - id: triedRestart
+    type: boolean
+    displayName: Tried Restart
+  - id: ticketNumber
+    type: string
+    displayName: Ticket Number
+  - id: ticketId
+    type: string
+    displayName: Ticket ID
+  - id: slaDeadline
+    type: string
+    displayName: SLA Deadline
+  - id: assignedTeam
+    type: string
+    displayName: Assigned Team
+  - id: ticketSuccess
+    type: boolean
+    displayName: Ticket Success
+
+nodes:
+  - kind: SendMessage
+    id: hardwareIntroMessage
+    message: |
+      🖥️ **Hardware Issue**
+
+      Let me gather a few more details about your hardware problem.
+
+  - kind: Question
+    id: askHardwareType
+    variable: hardwareType
+    prompt: "What piece of hardware is having the issue?"
+    inputType: choice
+    choices:
+      - text: "💻 Laptop / Desktop Computer"
+        value: Computer
+      - text: "🖥️ Monitor / Display"
+        value: Monitor
+      - text: "🖨️ Printer / Scanner"
+        value: Printer
+      - text: "⌨️ Keyboard / Mouse"
+        value: Keyboard/Mouse
+      - text: "📱 Phone / Mobile Device"
+        value: Mobile
+      - text: "🔌 Other peripheral / accessory"
+        value: Other
+
+  - kind: Question
+    id: askTriedRestart
+    variable: triedRestart
+    prompt: "Have you already tried **restarting or power-cycling** the device?"
+    inputType: choice
+    choices:
+      - text: "Yes, I've restarted it"
+        value: true
+      - text: "No, not yet"
+        value: false
+
+  - kind: Branch
+    id: checkRestart
+    condition: Topic.triedRestart
+
+    branches:
+      - condition: "=Topic.triedRestart = false"
+        nodes:
+          - kind: SendMessage
+            id: restartSuggestion
+            message: |
+              💡 **Quick tip:** Many hardware issues can be fixed with a simple restart.
+
+              Please try the following:
+              1. For **computers**: Shut down completely (not just sleep), wait 30 seconds, then power back on.
+              2. For **printers**: Turn off the printer, unplug the power cable, wait 30 seconds, then plug back in and power on.
+              3. For **monitors**: Unplug the video cable (HDMI/DisplayPort), wait a few seconds, then reconnect.
+              4. For **keyboards/mice**: Unplug the USB cable or remove and reinsert batteries for wireless devices.
+
+          - kind: Question
+            id: askAfterRestartHelped
+            prompt: "Did restarting resolve the issue?"
+            inputType: choice
+            choices:
+              - text: "✅ Yes, it's working now!"
+                value: resolved
+              - text: "❌ No, still having the issue"
+                value: stillBroken
+
+          - kind: Branch
+            id: checkResolvedAfterRestart
+            condition: System.LastMessage.Text
+            branches:
+              - condition: "=System.LastMessage.Text = \"resolved\" || System.LastMessage.Text = \"Yes, it's working now!\""
+                nodes:
+                  - kind: SendMessage
+                    id: resolvedMessage
+                    message: |
+                      Great, glad that worked! 🎉
+
+                      If the problem comes back, don't hesitate to reach out again. Have a productive day!
+                  - kind: EndConversation
+                    id: endResolved
+
+  - kind: SendMessage
+    id: proceedToTicketMessage
+    message: |
+      Understood. I'll create a support ticket for your **{Topic.hardwareType}** issue now.
+
+      Our Hardware Team will be in touch within **8 business hours**.
+
+  - kind: CallAction
+    id: createTicketFlow
+    actionId: create-ticket
+    inputs:
+      userName: =Topic.userName
+      userEmail: =Topic.userEmail
+      title: =Topic.issueSummary
+      description: =Concatenate("Hardware Type: ", Topic.hardwareType, "\n\nIssue Description:\n", Topic.issueDescription, "\n\nRestarted device: ", Text(Topic.triedRestart))
+      category: Hardware
+      priority: =Topic.autoPriority
+      affectedUsers: =Topic.affectedUsers
+    outputs:
+      ticketNumber: =Topic.ticketNumber
+      ticketId: =Topic.ticketId
+      slaDeadline: =Topic.slaDeadline
+      assignedTeam: =Topic.assignedTeam
+      success: =Topic.ticketSuccess
+
+  - kind: Branch
+    id: checkTicketCreated
+    condition: Topic.ticketSuccess
+    branches:
+      - condition: "=Topic.ticketSuccess = true"
+        nodes:
+          - kind: SendMessage
+            id: ticketCreatedMessage
+            message: |
+              ✅ **Ticket Created Successfully!**
+
+              | | |
+              |---|---|
+              | **Ticket #** | {Topic.ticketNumber} |
+              | **Priority** | {Topic.autoPriority} |
+              | **Assigned To** | {Topic.assignedTeam} |
+              | **SLA Deadline** | {Topic.slaDeadline} |
+
+              A confirmation has been sent to **{Topic.userEmail}**.
+
+              Is there anything else I can help you with?
+          - kind: QuickReplies
+            id: postTicketOptions
+            replies:
+              - text: "Report another issue"
+                value: anotherIssue
+              - text: "Check a ticket status"
+                value: checkStatus
+              - text: "No, I'm done"
+                value: done
+          - kind: Branch
+            id: postTicketRoute
+            condition: System.LastMessage.Text
+            branches:
+              - condition: "=System.LastMessage.Text = \"anotherIssue\""
+                nodes:
+                  - kind: GotoNode
+                    targetTopic: triage-intake
+              - condition: "=System.LastMessage.Text = \"checkStatus\""
+                nodes:
+                  - kind: GotoNode
+                    targetTopic: ticket-status
+              - condition: "=System.LastMessage.Text = \"done\""
+                nodes:
+                  - kind: SendMessage
+                    message: "Thanks for reaching out. We'll get your hardware issue sorted! 👋"
+                  - kind: EndConversation
+
+      - condition: "=Topic.ticketSuccess = false"
+        nodes:
+          - kind: SendMessage
+            id: ticketFailedMessage
+            message: |
+              ⚠️ I wasn't able to create your ticket automatically due to a technical issue.
+
+              Please contact IT support directly:
+              - 📧 Email: **helpdesk@{YOUR_DOMAIN}**
+              - 📞 Phone: **{YOUR_HELPDESK_PHONE}**
+
+              Reference your issue: **{Topic.issueCategory} - {Topic.issueSummary}**
+          - kind: EndConversation

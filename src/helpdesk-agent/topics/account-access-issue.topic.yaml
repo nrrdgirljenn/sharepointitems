@@ -1,0 +1,204 @@
+kind: AdaptiveDialog
+modelDescription: Handles account and access issues - password resets, lockouts, MFA, and permissions. High priority since they prevent users from working.
+id: account-access-issue
+displayName: Account / Access Issue
+isEnabled: true
+triggerType: Intent
+
+triggerPhrases:
+  - Account issue
+  - Can't log in
+  - Locked out
+  - Account locked
+  - Password reset
+  - Forgot password
+  - Password expired
+  - MFA issue
+  - Multi-factor authentication problem
+  - Authenticator app issue
+  - Need access to
+  - Permission denied
+  - Access denied
+  - Can't access shared drive
+  - Need permissions
+  - Account disabled
+  - Microsoft account locked
+
+variables:
+  - id: accessIssueType
+    type: string
+    displayName: Access Issue Type
+  - id: accountType
+    type: string
+    displayName: Account Type
+  - id: selfServiceAttempted
+    type: boolean
+    displayName: Self Service Attempted
+    defaultValue: false
+  - id: ticketNumber
+    type: string
+  - id: ticketId
+    type: string
+  - id: slaDeadline
+    type: string
+  - id: assignedTeam
+    type: string
+  - id: ticketSuccess
+    type: boolean
+
+nodes:
+  - kind: SendMessage
+    id: accountIntroMessage
+    message: |
+      🔐 **Account / Access Issue**
+
+      These issues are **high priority** since they prevent you from doing your work. I'll get this resolved quickly.
+
+  - kind: Question
+    id: askAccessIssueType
+    variable: accessIssueType
+    prompt: "What type of account or access issue are you experiencing?"
+    inputType: choice
+    choices:
+      - text: "🔒 Locked out of my account"
+        value: Lockout
+      - text: "🔑 Password expired or need a reset"
+        value: PasswordReset
+      - text: "📱 MFA / Authenticator app issue"
+        value: MFA
+      - text: "🚫 Permission denied to a resource"
+        value: PermissionDenied
+      - text: "➕ Need access to a new system or application"
+        value: NewAccess
+      - text: "❌ Account has been disabled"
+        value: AccountDisabled
+
+  - kind: Branch
+    id: branchByIssueType
+    condition: Topic.accessIssueType
+
+    branches:
+      - condition: "=Topic.accessIssueType = \"Lockout\" || Topic.accessIssueType = \"PasswordReset\""
+        nodes:
+          - kind: Question
+            id: askAccountType
+            variable: accountType
+            prompt: "Which account is locked or needs a password reset?"
+            inputType: choice
+            choices:
+              - text: "🏢 Windows / Microsoft 365 (company account)"
+                value: Microsoft365
+              - text: "📧 Email only (Outlook)"
+                value: Email
+              - text: "💬 Microsoft Teams"
+                value: Teams
+              - text: "🔧 A specific application"
+                value: Application
+              - text: "🔐 VPN account"
+                value: VPN
+          - kind: SendMessage
+            id: selfServicePasswordTip
+            message: |
+              💡 **Self-service options you can try first:**
+
+              **Microsoft 365 / Windows:**
+              - Visit [https://aka.ms/sspr](https://aka.ms/sspr) to reset your own password (if you have a backup phone/email set up)
+              - Ask a manager or IT Admin to unlock via the Microsoft 365 admin portal
+
+              If you've already tried self-service or it's not available, I'll create a ticket for the Account Team.
+          - kind: Question
+            id: askSelfServiceTried
+            variable: selfServiceAttempted
+            prompt: "Have you already tried the self-service password reset?"
+            inputType: choice
+            choices:
+              - text: "Yes, it didn't work or isn't set up"
+                value: true
+              - text: "No, I need IT to do it"
+                value: false
+
+      - condition: "=Topic.accessIssueType = \"MFA\""
+        nodes:
+          - kind: SendMessage
+            id: mfaTips
+            message: |
+              📱 **MFA / Authenticator Tips:**
+              - If your phone was lost/stolen, IT can reset your MFA methods
+              - If the authenticator app shows wrong codes, try syncing time on your phone: Settings → General Management → Date and Time → Automatic
+              - If you got a new phone, IT can help you transfer your authenticator
+
+      - condition: "=Topic.accessIssueType = \"PermissionDenied\""
+        nodes:
+          - kind: SendMessage
+            id: permissionInfo
+            message: |
+              🚫 **Permission issues** require approval from your manager or the resource owner.
+              Please ensure your manager has authorized this access — IT will need their approval before granting permissions.
+
+      - condition: "=Topic.accessIssueType = \"AccountDisabled\""
+        nodes:
+          - kind: SetVariable
+            id: setHighPriority
+            variable: autoPriority
+            value: High
+          - kind: SendMessage
+            id: disabledAccountInfo
+            message: |
+              ⚠️ Disabled accounts require IT Admin intervention. This will be treated as **High priority**.
+              The Account & Access Team will re-enable your account after verification.
+
+  - kind: SendMessage
+    id: proceedToTicketMessage
+    message: |
+      Creating a **{Topic.autoPriority} priority** account ticket now.
+
+      The Account & Access Team's SLA is **1 hour** — they'll resolve this quickly.
+
+  - kind: CallAction
+    id: createTicketFlow
+    actionId: create-ticket
+    inputs:
+      userName: =Topic.userName
+      userEmail: =Topic.userEmail
+      title: =Concatenate("Account Issue: ", Topic.accessIssueType, " - ", Topic.issueSummary)
+      description: =Concatenate("Access Issue Type: ", Topic.accessIssueType, "\nAccount Type: ", Coalesce(Topic.accountType, "N/A"), "\nSelf-Service Attempted: ", Text(Topic.selfServiceAttempted), "\n\nDescription:\n", Topic.issueDescription)
+      category: Account/Access
+      priority: =Topic.autoPriority
+      affectedUsers: =Topic.affectedUsers
+    outputs:
+      ticketNumber: =Topic.ticketNumber
+      ticketId: =Topic.ticketId
+      slaDeadline: =Topic.slaDeadline
+      assignedTeam: =Topic.assignedTeam
+      success: =Topic.ticketSuccess
+
+  - kind: Branch
+    id: checkTicketCreated
+    condition: Topic.ticketSuccess
+    branches:
+      - condition: "=Topic.ticketSuccess = true"
+        nodes:
+          - kind: SendMessage
+            id: ticketCreatedMessage
+            message: |
+              ✅ **Account Ticket Created**
+
+              | | |
+              |---|---|
+              | **Ticket #** | {Topic.ticketNumber} |
+              | **Issue Type** | {Topic.accessIssueType} |
+              | **Priority** | {Topic.autoPriority} |
+              | **SLA Deadline** | {Topic.slaDeadline} |
+
+              The Account & Access Team will contact you at **{Topic.userEmail}** within 1 hour.
+
+              > 📌 **Important:** If you are completely locked out and cannot receive emails, ask a colleague to contact IT on your behalf or call **{YOUR_HELPDESK_PHONE}**.
+          - kind: EndConversation
+
+      - condition: "=Topic.ticketSuccess = false"
+        nodes:
+          - kind: SendMessage
+            message: |
+              ⚠️ Couldn't create ticket. For urgent lockout issues, call IT immediately:
+              📞 **{YOUR_HELPDESK_PHONE}**
+          - kind: EndConversation

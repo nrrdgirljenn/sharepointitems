@@ -1,0 +1,91 @@
+kind: AdaptiveDialog
+modelDescription: Fallback topic triggered when the agent does not understand the user's input - gracefully redirects to available options
+id: fallback
+displayName: Fallback / Unknown Intent
+isEnabled: true
+triggerType: UnknownIntent
+
+nodes:
+  - kind: SendMessage
+    id: fallbackMessage
+    message: |
+      I'm sorry, I didn't quite understand that. I'm the **IT Help Desk Agent** and I can help you with:
+
+      🖥️ **Report a new IT issue** (hardware, software, network, accounts)
+      🔍 **Check the status** of an existing ticket
+      🚨 **Escalate** a critical issue to IT management
+
+  - kind: QuickReplies
+    id: fallbackOptions
+    replies:
+      - text: "🛠️ Report a new issue"
+        value: reportIssue
+      - text: "🔍 Check ticket status"
+        value: checkStatus
+      - text: "🚨 Escalate a ticket"
+        value: escalate
+      - text: "❓ What can you help with?"
+        value: capabilities
+
+  - kind: Branch
+    id: fallbackRoute
+    condition: System.LastMessage.Text
+    branches:
+      - condition: "=System.LastMessage.Text = \"reportIssue\""
+        nodes:
+          - kind: GotoNode
+            targetTopic: triage-intake
+
+      - condition: "=System.LastMessage.Text = \"checkStatus\""
+        nodes:
+          - kind: GotoNode
+            targetTopic: ticket-status
+
+      - condition: "=System.LastMessage.Text = \"escalate\""
+        nodes:
+          - kind: GotoNode
+            targetTopic: escalation
+
+      - condition: "=System.LastMessage.Text = \"capabilities\""
+        nodes:
+          - kind: SendMessage
+            id: capabilitiesDetail
+            message: |
+              Here's everything I can help you with:
+
+              **Reporting Issues:**
+              - 🖥️ Hardware — computers, monitors, printers, keyboards
+              - 💻 Software — application errors, crashes, licensing, installations
+              - 🌐 Network — internet, VPN, Wi-Fi, network drives
+              - 🔐 Account & Access — password resets, lockouts, MFA, permissions
+              - ❓ General IT — anything else IT-related
+
+              **Ticket Management:**
+              - Check status of a ticket by ticket number
+              - View all your open tickets by email
+              - Escalate a ticket to Critical priority
+
+              **When to call IT directly:**
+              - If you're completely unable to use any device (call us at **{YOUR_HELPDESK_PHONE}**)
+              - If a ticket was created but you haven't heard back within the SLA window
+
+              What would you like to do?
+          - kind: QuickReplies
+            id: capabilitiesOptions
+            replies:
+              - text: "Report an issue"
+                value: reportIssue2
+              - text: "Check a ticket"
+                value: checkStatus2
+          - kind: Branch
+            id: capabilitiesRoute
+            condition: System.LastMessage.Text
+            branches:
+              - condition: "=System.LastMessage.Text = \"reportIssue2\""
+                nodes:
+                  - kind: GotoNode
+                    targetTopic: triage-intake
+              - condition: "=System.LastMessage.Text = \"checkStatus2\""
+                nodes:
+                  - kind: GotoNode
+                    targetTopic: ticket-status
