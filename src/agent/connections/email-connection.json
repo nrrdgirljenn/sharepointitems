@@ -1,0 +1,53 @@
+{
+  "connectionReference": {
+    "id": "email-connection",
+    "displayName": "Microsoft 365 Outlook Connection",
+    "description": "Connection to Microsoft 365 Outlook for monitoring flagged emails and creating Notion tasks",
+    "connectorId": "/providers/Microsoft.PowerApps/apis/shared_office365",
+    "connectionType": "microsoft365",
+    "tier": "standard",
+    "authentication": {
+      "type": "oAuth2",
+      "provider": "AzureAD",
+      "scopes": [
+        "Mail.Read",
+        "Mail.ReadWrite"
+      ]
+    },
+    "configuration": {
+      "mailbox": "me",
+      "includeSharedMailboxes": false
+    },
+    "endpoints": {
+      "listMessages": {
+        "method": "GET",
+        "path": "/v1.0/me/messages",
+        "description": "List messages in the mailbox"
+      },
+      "getMessage": {
+        "method": "GET",
+        "path": "/v1.0/me/messages/{message_id}",
+        "description": "Get a specific email message"
+      },
+      "flagMessage": {
+        "method": "PATCH",
+        "path": "/v1.0/me/messages/{message_id}",
+        "description": "Update the flag status on a message"
+      }
+    },
+    "parameters": {
+      "monitoredFolders": {
+        "type": "array",
+        "displayName": "Monitored Folders",
+        "description": "Email folders to watch for flagged messages",
+        "default": ["Inbox"]
+      }
+    },
+    "setupInstructions": [
+      "1. Sign in to Copilot Studio with your Microsoft 365 account",
+      "2. The Outlook connection uses your existing Microsoft 365 authentication",
+      "3. Grant Mail.Read and Mail.ReadWrite permissions when prompted",
+      "4. No additional configuration required — the flow triggers automatically on flagged emails"
+    ]
+  }
+}

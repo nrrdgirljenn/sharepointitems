@@ -1,0 +1,232 @@
+kind: AdaptiveDialog
+modelDescription: This topic lets users view and manage Notion tasks that were automatically created from flagged Outlook emails, and configure email monitoring settings.
+beginDialog:
+  kind: OnRecognizedIntent
+  id: main
+  intent:
+    triggerQueries:
+      - Show email tasks
+      - Tasks from email
+      - Email to Notion
+      - View email-created tasks
+      - What tasks came from email
+      - Show flagged email tasks
+      - Email monitoring status
+      - Check email tasks
+      - Tasks created from flagged emails
+      - Email agent status
+
+  actions:
+    - kind: SendMessage
+      id: welcomeMsg
+      message: "📧 **Email Task Monitor**\nI automatically create Notion tasks when you flag emails in Outlook. What would you like to do?"
+
+    - kind: Question
+      id: askAction
+      prompt: Choose an option:
+      variable: init:Topic.EmailAction
+      entity:
+        kind: EmbeddedEntity
+        definition:
+          kind: ClosedListEntity
+          items:
+            - id: viewEmailTasks
+              displayName: View tasks created from email
+            - id: checkStatus
+              displayName: Check email monitoring status
+            - id: howItWorks
+              displayName: How does email monitoring work?
+
+    - kind: ConditionGroup
+      id: routeAction
+      conditions:
+        - id: viewTasksAction
+          condition: =Topic.EmailAction = 'viewEmailTasks'
+          actions:
+            - kind: SendMessage
+              id: fetchingEmailTasks
+              message: "🔍 Fetching your email-sourced tasks from Notion..."
+
+            - kind: InvokeFlowAction
+              id: callFetchNotionTasks
+              flowId: fetch-notion-tasks
+              input:
+                binding:
+                  databaseId: =System.User.NotionDatabaseId
+                  filterStatus: "active"
+                  includeDueToday: false
+              output:
+                binding:
+                  notionTasks: Topic.AllTasks
+                  taskCount: Topic.AllTaskCount
+                  errorMessage: Topic.FetchError
+
+            - kind: ConditionGroup
+              id: checkFetchResult
+              conditions:
+                - id: fetchError
+                  condition: =!IsBlank(Topic.FetchError)
+                  actions:
+                    - kind: SendMessage
+                      id: fetchErrorMsg
+                      message: |
+                        ⚠️ Couldn't retrieve tasks: {Topic.FetchError}
+
+                        Please verify your Notion connection is set up correctly.
+
+                - id: noTasks
+                  condition: =Topic.AllTaskCount = 0
+                  actions:
+                    - kind: SendMessage
+                      id: noEmailTasksMsg
+                      message: |
+                        ✨ No email-sourced tasks found yet.
+
+                        Tasks appear here automatically when you **flag an email** in Outlook. The agent checks your inbox every 5 minutes and creates a Notion task for each newly flagged message.
+
+                - id: hasTasks
+                  condition: =Topic.AllTaskCount > 0
+                  actions:
+                    - kind: SetVariable
+                      id: initEmailTaskCount
+                      variable: Topic.EmailTaskCount
+                      value: =0
+
+                    - kind: SendMessage
+                      id: emailTasksHeader
+                      message: "📋 **Tasks from Flagged Emails** (showing Source = Email):"
+
+                    - kind: ForEachAction
+                      id: loopEmailTasks
+                      itemsSource: =Topic.AllTasks
+                      itemVariable: Topic.CurrentTask
+                      actions:
+                        - kind: ConditionGroup
+                          id: filterBySource
+                          conditions:
+                            - id: isEmailSource
+                              condition: =Topic.CurrentTask.source = 'Email'
+                              actions:
+                                - kind: SetVariable
+                                  id: incrementCount
+                                  variable: Topic.EmailTaskCount
+                                  value: =Topic.EmailTaskCount + 1
+
+                                - kind: SendMessage
+                                  id: displayEmailTask
+                                  message: |
+                                    {If(Topic.CurrentTask.priority = "high", "🔴", If(Topic.CurrentTask.priority = "medium", "🟡", "🟢"))} **{Topic.CurrentTask.title}**
+                                    └ From: {Topic.CurrentTask.source} | Status: {Topic.CurrentTask.status} | Due: {Topic.CurrentTask.dueDate}
+
+                    - kind: ConditionGroup
+                      id: checkEmailCount
+                      conditions:
+                        - id: zeroEmailTasks
+                          condition: =Topic.EmailTaskCount = 0
+                          actions:
+                            - kind: SendMessage
+                              id: noEmailSourceTasks
+                              message: |
+                                No tasks with Source = "Email" found yet.
+
+                                To get started, flag an email in Outlook — the agent will create a Notion task within 5 minutes.
+
+                    - kind: Question
+                      id: askNextAction
+                      prompt: What would you like to do next?
+                      variable: init:Topic.NextAction
+                      entity:
+                        kind: EmbeddedEntity
+                        definition:
+                          kind: ClosedListEntity
+                          items:
+                            - id: buildChecklist
+                              displayName: Add these to my daily checklist
+                            - id: markComplete
+                              displayName: Mark a task complete
+                            - id: done
+                              displayName: Done
+
+                    - kind: ConditionGroup
+                      id: handleNextAction
+                      conditions:
+                        - id: buildChecklistAction
+                          condition: =Topic.NextAction = 'buildChecklist'
+                          actions:
+                            - kind: SetVariable
+                              id: setEmailTasksForChecklist
+                              variable: Global.EmailTasksForChecklist
+                              value: =Topic.AllTasks
+                            - kind: BeginDialog
+                              id: goToBuildChecklist
+                              dialog: build-daily-checklist
+
+                        - id: markCompleteAction
+                          condition: =Topic.NextAction = 'markComplete'
+                          actions:
+                            - kind: BeginDialog
+                              id: goToManageChecklist
+                              dialog: manage-checklist
+
+        - id: checkStatusAction
+          condition: =Topic.EmailAction = 'checkStatus'
+          actions:
+            - kind: SendMessage
+              id: statusReport
+              message: |
+                📊 **Email Monitoring Status**
+
+                **Flow:** Create Notion Task from Flagged Email
+                **Trigger:** Every 5 minutes, scans Outlook inbox for newly flagged messages
+                **Action:** Creates a Notion task with:
+                  • Title = Email subject
+                  • Status = Not started
+                  • Priority = Derived from email importance (High/Normal/Low)
+                  • Source = Email
+                  • From = Sender name and address
+                  • Email Link = Direct link back to the original email
+                  • Body snippet = First 500 characters of email body
+
+                **After processing:** The email is marked as read and tagged "Notion Task Created"
+
+                ✅ Monitoring is **active** — flag any email in Outlook to create a task automatically.
+
+        - id: howItWorksAction
+          condition: =Topic.EmailAction = 'howItWorks'
+          actions:
+            - kind: SendMessage
+              id: howItWorksMsg
+              message: |
+                🤖 **How Email-to-Notion Task Creation Works**
+
+                **Step 1 — Flag an email**
+                In Outlook (desktop, web, or mobile), click the flag icon on any email you want to turn into a task.
+
+                **Step 2 — Agent detects it**
+                A Power Automate flow runs every 5 minutes and checks your inbox for newly flagged, unread emails.
+
+                **Step 3 — Notion task is created**
+                For each flagged email, a new task appears in your Notion database with:
+                • The email subject as the task title
+                • Your email's importance level mapped to priority (High → high, Normal → medium, Low → low)
+                • The sender's name and address in a "From" field
+                • A direct link back to the original email
+                • The first 500 characters of the email body as context
+
+                **Step 4 — Email is processed**
+                The email is marked as read and categorized as "Notion Task Created" so it won't be processed again.
+
+                **Step 5 — Task appears in your checklist**
+                The task shows up in your daily checklist with Source = "Email", just like tasks from Planner or Notion itself.
+
+                **Tips:**
+                • Use Outlook's importance flag (!) to set priority automatically
+                • Unflag an email before the 5-minute cycle to prevent task creation
+                • Tasks inherit the email's received date as the "Received" field
+
+inputParameters: []
+
+outputParameters:
+  - name: emailTaskCount
+    type: Number
+    description: Number of email-sourced tasks retrieved

@@ -4,11 +4,12 @@ A Copilot Studio agent that helps you build and manage your daily project checkl
 
 ## Features
 
-- **Unified Daily Checklist**: Combines tasks from Notion and Planner into one view
+- **Unified Daily Checklist**: Combines tasks from Notion, Planner, and email into one view
 - **Smart Prioritization**: Tasks sorted by priority and due date
-- **Cross-Platform Updates**: Mark tasks complete and sync status across both platforms
+- **Cross-Platform Updates**: Mark tasks complete and sync status across all platforms
 - **Real-time Sync**: Always get the latest tasks from your connected services
 - **Natural Language Interface**: Just ask for your checklist in plain English
+- **Email-to-Task Agent**: Automatically creates Notion tasks from flagged Outlook emails
 
 ## Project Structure
 
@@ -23,21 +24,24 @@ src/agent/
 │   ├── build-daily-checklist.topic.yaml
 │   ├── manage-checklist.topic.yaml
 │   ├── sync-status.topic.yaml
+│   ├── monitor-email-tasks.topic.yaml  # Email monitoring & email-sourced tasks
 │   └── fallback.topic.yaml
 ├── connections/               # Connection references
 │   ├── notion-connection.json
-│   └── planner-connection.json
+│   ├── planner-connection.json
+│   └── email-connection.json           # Microsoft 365 Outlook connection
 └── flows/                     # Power Automate flows
     ├── fetch-notion-tasks.flow.json
     ├── fetch-planner-tasks.flow.json
-    └── update-task-status.flow.json
+    ├── update-task-status.flow.json
+    └── create-notion-task-from-email.flow.json  # Email-to-Notion automation
 ```
 
 ## Setup Instructions
 
 ### Prerequisites
 
-- Microsoft 365 account with Planner access
+- Microsoft 365 account with Planner and Outlook access
 - Notion account with API access
 - Copilot Studio license
 
@@ -55,11 +59,23 @@ src/agent/
 2. The Planner connection will use your existing Microsoft 365 authentication
 3. Identify the Plan ID(s) you want to connect (optional - agent can show all your tasks)
 
-### 3. Deploy to Copilot Studio
+### 3. Email Monitoring Setup
+
+1. The Outlook connection reuses your existing Microsoft 365 authentication
+2. Grant `Mail.Read` and `Mail.ReadWrite` permissions when prompted in Power Automate
+3. In `settings.json`, confirm `emailMonitoring.enabled` is `true`
+4. Add a **Source** property (Select type) to your Notion tasks database if it doesn't exist
+5. Add a **From** property (Text type) and **Email Link** property (URL type) to the database
+6. Add a **Received** property (Date type) for the email received timestamp
+7. The flow polls every 5 minutes — adjust `pollIntervalMinutes` in `settings.json` as needed
+
+**To create a task from email:** Simply flag any email in Outlook (desktop, web, or mobile).
+
+### 5. Deploy to Copilot Studio
 
 1. Import the agent manifest into Copilot Studio
 2. Configure the connection references with your credentials
-3. Import and enable the Power Automate flows
+3. Import and enable the Power Automate flows (including the new email flow)
 4. Test the agent in the test pane
 5. Publish when ready
 
@@ -84,6 +100,12 @@ src/agent/
 - "Sync status"
 - "Check connection status"
 - "Are my integrations working?"
+
+**Email monitoring:**
+- "Show email tasks"
+- "Tasks from email"
+- "Email monitoring status"
+- "How does email monitoring work?"
 
 ## Configuration
 

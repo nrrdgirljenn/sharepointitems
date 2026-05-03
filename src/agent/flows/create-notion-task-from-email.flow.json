@@ -1,0 +1,313 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "metadata": {
+      "flowId": "create-notion-task-from-email",
+      "displayName": "Create Notion Task from Flagged Email",
+      "description": "Monitors Outlook for flagged emails and automatically creates a corresponding task in the Notion tasks database",
+      "author": "Daily Project Checklist Agent",
+      "version": "1.0.0"
+    },
+    "parameters": {
+      "notionConnection": {
+        "type": "string",
+        "defaultValue": "notion-connection"
+      },
+      "notionDatabaseId": {
+        "type": "string",
+        "description": "Target Notion database ID where tasks will be created"
+      },
+      "notionApiKey": {
+        "type": "securestring",
+        "description": "Notion integration token (Bearer token)"
+      }
+    },
+    "triggers": {
+      "When_email_is_flagged": {
+        "type": "ApiConnection",
+        "kind": "Automated",
+        "inputs": {
+          "host": {
+            "connection": {
+              "name": "@parameters('$connections')['office365']['connectionId']"
+            }
+          },
+          "method": "get",
+          "path": "/v1.0/me/messages",
+          "queries": {
+            "$filter": "flag/flagStatus eq 'flagged' and isRead eq false",
+            "$select": "id,subject,from,receivedDateTime,body,importance,flag,webLink",
+            "$orderby": "receivedDateTime desc",
+            "$top": "50"
+          }
+        },
+        "recurrence": {
+          "frequency": "Minute",
+          "interval": 5
+        },
+        "splitOn": "@triggerBody()?['value']"
+      }
+    },
+    "actions": {
+      "Initialize_TaskCreated": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "taskCreated",
+              "type": "boolean",
+              "value": false
+            }
+          ]
+        },
+        "runAfter": {}
+      },
+      "Initialize_ErrorMessage": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "errorMessage",
+              "type": "string",
+              "value": ""
+            }
+          ]
+        },
+        "runAfter": {
+          "Initialize_TaskCreated": ["Succeeded"]
+        }
+      },
+      "Parse_Email_Subject": {
+        "type": "Compose",
+        "inputs": "@{coalesce(triggerBody()?['subject'], '(No Subject)')}",
+        "runAfter": {
+          "Initialize_ErrorMessage": ["Succeeded"]
+        }
+      },
+      "Parse_Sender_Name": {
+        "type": "Compose",
+        "inputs": "@{coalesce(triggerBody()?['from']?['emailAddress']?['name'], triggerBody()?['from']?['emailAddress']?['address'], 'Unknown Sender')}",
+        "runAfter": {
+          "Parse_Email_Subject": ["Succeeded"]
+        }
+      },
+      "Parse_Sender_Email": {
+        "type": "Compose",
+        "inputs": "@{coalesce(triggerBody()?['from']?['emailAddress']?['address'], '')}",
+        "runAfter": {
+          "Parse_Sender_Name": ["Succeeded"]
+        }
+      },
+      "Determine_Priority": {
+        "type": "Compose",
+        "inputs": "@{if(equals(triggerBody()?['importance'], 'high'), 'high', if(equals(triggerBody()?['importance'], 'low'), 'low', 'medium'))}",
+        "runAfter": {
+          "Parse_Sender_Email": ["Succeeded"]
+        }
+      },
+      "Extract_Body_Snippet": {
+        "type": "Compose",
+        "inputs": "@{substring(replace(replace(coalesce(triggerBody()?['body']?['content'], ''), '<[^>]+>', ''), '&nbsp;', ' '), 0, min(500, length(replace(replace(coalesce(triggerBody()?['body']?['content'], ''), '<[^>]+>', ''), '&nbsp;', ' '))))}",
+        "runAfter": {
+          "Determine_Priority": ["Succeeded"]
+        }
+      },
+      "Create_Notion_Task": {
+        "type": "Http",
+        "inputs": {
+          "method": "POST",
+          "uri": "https://api.notion.com/v1/pages",
+          "headers": {
+            "Authorization": "Bearer @{parameters('notionApiKey')}",
+            "Notion-Version": "2022-06-28",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "parent": {
+              "database_id": "@parameters('notionDatabaseId')"
+            },
+            "properties": {
+              "Name": {
+                "title": [
+                  {
+                    "text": {
+                      "content": "@{outputs('Parse_Email_Subject')}"
+                    }
+                  }
+                ]
+              },
+              "Status": {
+                "status": {
+                  "name": "Not started"
+                }
+              },
+              "Priority": {
+                "select": {
+                  "name": "@{outputs('Determine_Priority')}"
+                }
+              },
+              "Source": {
+                "select": {
+                  "name": "Email"
+                }
+              },
+              "From": {
+                "rich_text": [
+                  {
+                    "text": {
+                      "content": "@{outputs('Parse_Sender_Name')} <@{outputs('Parse_Sender_Email')}>"
+                    }
+                  }
+                ]
+              },
+              "Email Link": {
+                "url": "@{coalesce(triggerBody()?['webLink'], '')}"
+              },
+              "Received": {
+                "date": {
+                  "start": "@{triggerBody()?['receivedDateTime']}"
+                }
+              }
+            },
+            "children": [
+              {
+                "object": "block",
+                "type": "callout",
+                "callout": {
+                  "rich_text": [
+                    {
+                      "type": "text",
+                      "text": {
+                        "content": "From: @{outputs('Parse_Sender_Name')} (@{outputs('Parse_Sender_Email')})\nReceived: @{triggerBody()?['receivedDateTime']}"
+                      }
+                    }
+                  ],
+                  "icon": {
+                    "emoji": "📧"
+                  }
+                }
+              },
+              {
+                "object": "block",
+                "type": "divider",
+                "divider": {}
+              },
+              {
+                "object": "block",
+                "type": "paragraph",
+                "paragraph": {
+                  "rich_text": [
+                    {
+                      "type": "text",
+                      "text": {
+                        "content": "@{outputs('Extract_Body_Snippet')}"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        "runAfter": {
+          "Extract_Body_Snippet": ["Succeeded"]
+        }
+      },
+      "Set_TaskCreated_True": {
+        "type": "SetVariable",
+        "inputs": {
+          "name": "taskCreated",
+          "value": true
+        },
+        "runAfter": {
+          "Create_Notion_Task": ["Succeeded"]
+        }
+      },
+      "Mark_Email_As_Read": {
+        "type": "ApiConnection",
+        "inputs": {
+          "host": {
+            "connection": {
+              "name": "@parameters('$connections')['office365']['connectionId']"
+            }
+          },
+          "method": "patch",
+          "path": "/v1.0/me/messages/@{triggerBody()?['id']}",
+          "body": {
+            "isRead": true,
+            "categories": ["Notion Task Created"]
+          }
+        },
+        "runAfter": {
+          "Set_TaskCreated_True": ["Succeeded"]
+        }
+      },
+      "Handle_Creation_Error": {
+        "type": "SetVariable",
+        "inputs": {
+          "name": "errorMessage",
+          "value": "Failed to create Notion task for email: @{outputs('Parse_Email_Subject')}. Error: @{body('Create_Notion_Task')}"
+        },
+        "runAfter": {
+          "Create_Notion_Task": ["Failed", "TimedOut"]
+        }
+      },
+      "Response": {
+        "type": "Response",
+        "kind": "PowerVirtualAgents",
+        "inputs": {
+          "statusCode": 200,
+          "body": {
+            "taskCreated": "@variables('taskCreated')",
+            "notionPageId": "@{body('Create_Notion_Task')?['id']}",
+            "notionPageUrl": "@{body('Create_Notion_Task')?['url']}",
+            "emailSubject": "@{outputs('Parse_Email_Subject')}",
+            "senderName": "@{outputs('Parse_Sender_Name')}",
+            "priority": "@{outputs('Determine_Priority')}",
+            "errorMessage": "@variables('errorMessage')",
+            "processedAt": "@utcNow()"
+          }
+        },
+        "runAfter": {
+          "Mark_Email_As_Read": ["Succeeded", "Skipped"],
+          "Handle_Creation_Error": ["Succeeded", "Skipped"]
+        }
+      }
+    },
+    "outputs": {
+      "taskCreated": {
+        "type": "boolean",
+        "description": "Whether a Notion task was created successfully"
+      },
+      "notionPageId": {
+        "type": "string",
+        "description": "ID of the created Notion page"
+      },
+      "notionPageUrl": {
+        "type": "string",
+        "description": "URL of the created Notion page"
+      },
+      "emailSubject": {
+        "type": "string",
+        "description": "Subject line of the processed email"
+      },
+      "senderName": {
+        "type": "string",
+        "description": "Display name of the email sender"
+      },
+      "priority": {
+        "type": "string",
+        "description": "Derived priority (high/medium/low)"
+      },
+      "errorMessage": {
+        "type": "string",
+        "description": "Error message if task creation failed"
+      },
+      "processedAt": {
+        "type": "string",
+        "description": "Timestamp when the email was processed"
+      }
+    }
+  }
+}

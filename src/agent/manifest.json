@@ -29,6 +29,11 @@
       "id": "planner-connection",
       "type": "microsoft365",
       "displayName": "Microsoft Planner Connection"
+    },
+    {
+      "id": "email-connection",
+      "type": "microsoft365",
+      "displayName": "Microsoft 365 Outlook Connection"
     }
   ],
   "topics": [
@@ -37,12 +42,14 @@
     "topics/get-planner-tasks.topic.yaml",
     "topics/build-daily-checklist.topic.yaml",
     "topics/manage-checklist.topic.yaml",
-    "topics/sync-status.topic.yaml"
+    "topics/sync-status.topic.yaml",
+    "topics/monitor-email-tasks.topic.yaml"
   ],
   "flows": [
     "flows/fetch-notion-tasks.flow.json",
     "flows/fetch-planner-tasks.flow.json",
-    "flows/update-task-status.flow.json"
+    "flows/update-task-status.flow.json",
+    "flows/create-notion-task-from-email.flow.json"
   ],
   "knowledgeSources": [],
   "triggers": {
