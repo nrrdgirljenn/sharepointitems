@@ -29,6 +29,11 @@
       "id": "planner-connection",
       "type": "microsoft365",
       "displayName": "Microsoft Planner Connection"
+    },
+    {
+      "id": "gmail-connection",
+      "type": "oauth2",
+      "displayName": "Gmail Connection"
     }
   ],
   "topics": [
@@ -42,7 +47,9 @@
   "flows": [
     "flows/fetch-notion-tasks.flow.json",
     "flows/fetch-planner-tasks.flow.json",
-    "flows/update-task-status.flow.json"
+    "flows/update-task-status.flow.json",
+    "flows/fetch-gmail-tasks.flow.json",
+    "flows/gmail-daily-routine.flow.json"
   ],
   "knowledgeSources": [],
   "triggers": {

@@ -34,6 +34,31 @@
           "inProgress": "inProgress",
           "completed": "completed"
         }
+      },
+      "gmail": {
+        "enabled": true,
+        "syncInterval": "scheduled",
+        "scheduleTime": "08:00",
+        "timezone": "UTC",
+        "labelFilters": ["INBOX", "IMPORTANT"],
+        "senderFilters": [],
+        "maxEmailsPerRun": 25,
+        "taskCreation": {
+          "enabled": true,
+          "targetSource": "planner",
+          "targetPlanId": "",
+          "targetBucketId": "",
+          "targetBucketName": "Gmail Inbox",
+          "taskTitlePrefix": "[Gmail]",
+          "defaultDueDaysFromNow": 1,
+          "defaultPriority": "medium",
+          "markEmailAsReadOnTaskCreate": false
+        },
+        "taskStatusMapping": {
+          "notStarted": "notStarted",
+          "inProgress": "inProgress",
+          "completed": "completed"
+        }
       }
     },
     "checklistSettings": {

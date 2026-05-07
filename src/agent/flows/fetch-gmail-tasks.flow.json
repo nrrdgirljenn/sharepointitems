@@ -1,0 +1,213 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "metadata": {
+      "flowId": "fetch-gmail-tasks",
+      "displayName": "Fetch Gmail Tasks",
+      "description": "Retrieves unread emails from Gmail and returns them as checklist items for display in the daily checklist",
+      "author": "Daily Project Checklist Agent",
+      "version": "1.0.0"
+    },
+    "parameters": {
+      "$connections": {
+        "defaultValue": {},
+        "type": "Object"
+      },
+      "gmailConnection": {
+        "type": "string",
+        "defaultValue": "gmail-connection"
+      }
+    },
+    "triggers": {
+      "manual": {
+        "type": "Request",
+        "kind": "PowerVirtualAgents",
+        "inputs": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "labelFilters": {
+                "type": "array",
+                "description": "Gmail labels to filter by (e.g. INBOX, IMPORTANT)",
+                "items": { "type": "string" }
+              },
+              "senderFilters": {
+                "type": "array",
+                "description": "Sender addresses or domains to filter by",
+                "items": { "type": "string" }
+              },
+              "maxResults": {
+                "type": "integer",
+                "description": "Maximum number of emails to return",
+                "default": 25
+              },
+              "testConnection": {
+                "type": "boolean",
+                "description": "Just test the connection",
+                "default": false
+              }
+            }
+          }
+        }
+      }
+    },
+    "actions": {
+      "Initialize_Variables": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "gmailTasks",
+              "type": "array",
+              "value": []
+            },
+            {
+              "name": "errorMessage",
+              "type": "string",
+              "value": ""
+            }
+          ]
+        },
+        "runAfter": {}
+      },
+      "Get_Unread_Emails": {
+        "type": "ApiConnection",
+        "inputs": {
+          "host": {
+            "connection": {
+              "name": "@parameters('$connections')['gmail']['connectionId']"
+            }
+          },
+          "method": "get",
+          "path": "/Mail",
+          "queries": {
+            "fetchOnlyUnread": true,
+            "includeAttachments": false,
+            "labelIds": "@{join(coalesce(triggerBody()?['labelFilters'], createArray('INBOX', 'IMPORTANT')), ',')}",
+            "top": "@coalesce(triggerBody()?['maxResults'], 25)"
+          }
+        },
+        "runAfter": {
+          "Initialize_Variables": ["Succeeded"]
+        }
+      },
+      "Filter_By_Sender": {
+        "type": "If",
+        "expression": {
+          "and": [
+            {
+              "greater": [
+                "@length(coalesce(triggerBody()?['senderFilters'], createArray()))",
+                0
+              ]
+            }
+          ]
+        },
+        "actions": {
+          "Apply_Sender_Filter": {
+            "type": "Query",
+            "inputs": {
+              "from": "@body('Get_Unread_Emails')?['value']",
+              "where": "@contains(join(coalesce(triggerBody()?['senderFilters'], createArray()), '|'), item()?['From'])"
+            }
+          },
+          "Set_Filtered_Tasks": {
+            "type": "SetVariable",
+            "inputs": {
+              "name": "gmailTasks",
+              "value": "@body('Apply_Sender_Filter')"
+            },
+            "runAfter": {
+              "Apply_Sender_Filter": ["Succeeded"]
+            }
+          }
+        },
+        "else": {
+          "actions": {
+            "Set_All_Tasks": {
+              "type": "SetVariable",
+              "inputs": {
+                "name": "gmailTasks",
+                "value": "@coalesce(body('Get_Unread_Emails')?['value'], json('[]'))"
+              }
+            }
+          }
+        },
+        "runAfter": {
+          "Get_Unread_Emails": ["Succeeded"]
+        }
+      },
+      "Transform_Gmail_Tasks": {
+        "type": "Select",
+        "inputs": {
+          "from": "@variables('gmailTasks')",
+          "select": {
+            "id": "@item()?['Id']",
+            "title": "@coalesce(item()?['Subject'], '(No Subject)')",
+            "status": "notStarted",
+            "priority": "medium",
+            "dueDate": "@utcNow('yyyy-MM-dd')",
+            "source": "Gmail",
+            "snippet": "@coalesce(item()?['BodyPreview'], '')",
+            "from": "@coalesce(item()?['From'], '')",
+            "receivedDateTime": "@coalesce(item()?['DateTimeReceived'], utcNow())"
+          }
+        },
+        "runAfter": {
+          "Filter_By_Sender": ["Succeeded"]
+        }
+      },
+      "Success_Response": {
+        "type": "Response",
+        "kind": "PowerVirtualAgents",
+        "inputs": {
+          "statusCode": 200,
+          "body": {
+            "gmailTasks": "@body('Transform_Gmail_Tasks')",
+            "taskCount": "@length(body('Transform_Gmail_Tasks'))",
+            "errorMessage": null,
+            "lastSync": "@utcNow()"
+          }
+        },
+        "runAfter": {
+          "Transform_Gmail_Tasks": ["Succeeded"]
+        }
+      },
+      "Error_Response": {
+        "type": "Response",
+        "kind": "PowerVirtualAgents",
+        "inputs": {
+          "statusCode": 200,
+          "body": {
+            "gmailTasks": [],
+            "taskCount": 0,
+            "errorMessage": "Failed to fetch emails from Gmail. Please check your connection and permissions.",
+            "lastSync": null
+          }
+        },
+        "runAfter": {
+          "Get_Unread_Emails": ["Failed", "TimedOut"]
+        }
+      }
+    },
+    "outputs": {
+      "gmailTasks": {
+        "type": "array",
+        "description": "Array of Gmail emails normalized as checklist items"
+      },
+      "taskCount": {
+        "type": "integer",
+        "description": "Number of emails retrieved"
+      },
+      "errorMessage": {
+        "type": "string",
+        "description": "Error message if any"
+      },
+      "lastSync": {
+        "type": "string",
+        "description": "Timestamp of last sync"
+      }
+    }
+  }
+}

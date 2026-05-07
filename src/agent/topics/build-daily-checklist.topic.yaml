@@ -69,16 +69,35 @@ beginDialog:
           plannerCount: Topic.PlannerCount
           plannerError: Topic.PlannerError
 
+    # Fetch from Gmail
+    - kind: SendMessage
+      id: fetchGmailMsg
+      message: "📧 Connecting to Gmail..."
+
+    - kind: InvokeFlowAction
+      id: fetchGmail
+      flowId: fetch-gmail-tasks
+      input:
+        binding:
+          labelFilters: =["INBOX","IMPORTANT"]
+          senderFilters: =[]
+          maxResults: =25
+      output:
+        binding:
+          gmailTasks: Topic.GmailTasks
+          gmailCount: Topic.GmailCount
+          gmailError: Topic.GmailError
+
     # Process and combine results
     - kind: SetVariable
       id: combineChecklists
       variable: Topic.DailyChecklist
-      value: =Concat(Topic.NotionTasks, Topic.PlannerTasks)
+      value: =Concat(Topic.NotionTasks, Topic.PlannerTasks, Topic.GmailTasks)
 
     - kind: SetVariable
       id: calculateTotal
       variable: Topic.TotalTaskCount
-      value: =Topic.NotionCount + Topic.PlannerCount
+      value: =Topic.NotionCount + Topic.PlannerCount + Topic.GmailCount
 
     # Display connection status
     - kind: SendMessage
@@ -87,6 +106,7 @@ beginDialog:
         **Connection Status:**
         {If(IsBlank(Topic.NotionError), "✅ Notion: " & Topic.NotionCount & " tasks", "⚠️ Notion: " & Topic.NotionError)}
         {If(IsBlank(Topic.PlannerError), "✅ Planner: " & Topic.PlannerCount & " tasks", "⚠️ Planner: " & Topic.PlannerError)}
+        {If(IsBlank(Topic.GmailError), "✅ Gmail: " & Topic.GmailCount & " emails", "⚠️ Gmail: " & Topic.GmailError)}
 
     - kind: ConditionGroup
       id: checkTasks
@@ -213,6 +233,8 @@ beginDialog:
                               displayName: Notion tasks only
                             - id: planner
                               displayName: Planner tasks only
+                            - id: gmail
+                              displayName: Gmail emails only
 
                     - kind: ConditionGroup
                       id: routeToSource
@@ -229,6 +251,20 @@ beginDialog:
                             - kind: BeginDialog
                               id: gotoPlannerView
                               dialog: get-planner-tasks
+                        - id: gmailChoice
+                          condition: =Topic.SourceChoice = 'gmail'
+                          actions:
+                            - kind: SendMessage
+                              id: gmailSourceHeader
+                              message: "📧 **Gmail emails** ({Topic.GmailCount} unread):"
+                            - kind: ForEachAction
+                              id: loopGmailSource
+                              itemsSource: =Topic.GmailTasks
+                              itemVariable: Topic.GmailTask
+                              actions:
+                                - kind: SendMessage
+                                  id: displayGmailSourceTask
+                                  message: "  ☐ {Topic.GmailTask.title} — From: {Topic.GmailTask.from}"
 
                 - id: refreshAction
                   condition: =Topic.NextAction = 'refresh'

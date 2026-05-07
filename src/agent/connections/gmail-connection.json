@@ -1,0 +1,50 @@
+{
+  "connectionReference": {
+    "id": "gmail-connection",
+    "displayName": "Gmail Connection",
+    "description": "Connection to Gmail via Power Automate Gmail connector for fetching and filtering unread emails",
+    "connectorId": "/providers/Microsoft.PowerApps/apis/shared_gmail",
+    "connectionType": "google",
+    "tier": "standard",
+    "authentication": {
+      "type": "oauth2",
+      "provider": "Google",
+      "scopes": [
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/gmail.labels"
+      ]
+    },
+    "configuration": {
+      "defaultHeaders": {
+        "Content-Type": "application/json"
+      }
+    },
+    "parameters": {
+      "labelFilters": {
+        "type": "array",
+        "displayName": "Label Filters",
+        "description": "Gmail labels to include (e.g. INBOX, IMPORTANT). Leave empty to fetch all unread emails.",
+        "default": ["INBOX", "IMPORTANT"]
+      },
+      "senderFilters": {
+        "type": "array",
+        "displayName": "Sender Filters",
+        "description": "Sender email addresses or domains to match (e.g. boss@company.com, @company.com). Leave empty to include all senders.",
+        "default": []
+      },
+      "maxResults": {
+        "type": "integer",
+        "displayName": "Max Results",
+        "description": "Maximum number of emails to fetch per run",
+        "default": 25
+      }
+    },
+    "setupInstructions": [
+      "1. In Power Automate, add a new connection and search for 'Gmail'",
+      "2. Sign in with your Google account when prompted",
+      "3. Authorize the Gmail connector to read your emails and labels",
+      "4. Configure labelFilters and senderFilters in settings.json to narrow results",
+      "5. Set scheduleTime in settings.json to control when the daily routine runs"
+    ]
+  }
+}

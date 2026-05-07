@@ -1,0 +1,383 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "metadata": {
+      "flowId": "gmail-daily-routine",
+      "displayName": "Gmail Daily Routine",
+      "description": "Scheduled daily flow that fetches unread Gmail emails, filters by label/sender, and creates Planner tasks from matching emails with a [Gmail] title prefix",
+      "author": "Daily Project Checklist Agent",
+      "version": "1.0.0"
+    },
+    "parameters": {
+      "$connections": {
+        "defaultValue": {},
+        "type": "Object"
+      },
+      "gmailConnection": {
+        "type": "string",
+        "defaultValue": "gmail-connection"
+      },
+      "plannerConnection": {
+        "type": "string",
+        "defaultValue": "planner-connection"
+      },
+      "maxEmailsPerRun": {
+        "type": "integer",
+        "defaultValue": 25
+      },
+      "labelFilters": {
+        "type": "array",
+        "defaultValue": ["INBOX", "IMPORTANT"]
+      },
+      "senderFilters": {
+        "type": "array",
+        "defaultValue": []
+      },
+      "targetPlanId": {
+        "type": "string",
+        "defaultValue": ""
+      },
+      "targetBucketId": {
+        "type": "string",
+        "defaultValue": ""
+      },
+      "taskTitlePrefix": {
+        "type": "string",
+        "defaultValue": "[Gmail]"
+      },
+      "markEmailsAsRead": {
+        "type": "boolean",
+        "defaultValue": false
+      }
+    },
+    "triggers": {
+      "Recurrence": {
+        "type": "Recurrence",
+        "recurrence": {
+          "frequency": "Day",
+          "interval": 1,
+          "schedule": {
+            "hours": ["8"],
+            "minutes": [0]
+          },
+          "timeZone": "UTC"
+        }
+      }
+    },
+    "actions": {
+      "Initialize_Variables": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "createdTaskCount",
+              "type": "integer",
+              "value": 0
+            },
+            {
+              "name": "skippedEmailCount",
+              "type": "integer",
+              "value": 0
+            },
+            {
+              "name": "errorMessage",
+              "type": "string",
+              "value": ""
+            }
+          ]
+        },
+        "runAfter": {}
+      },
+      "Condition_Plan_Configured": {
+        "type": "If",
+        "expression": {
+          "and": [
+            {
+              "not": {
+                "equals": ["@parameters('targetPlanId')", ""]
+              }
+            }
+          ]
+        },
+        "actions": {
+          "Get_Unread_Emails": {
+            "type": "ApiConnection",
+            "inputs": {
+              "host": {
+                "connection": {
+                  "name": "@parameters('$connections')['gmail']['connectionId']"
+                }
+              },
+              "method": "get",
+              "path": "/Mail",
+              "queries": {
+                "fetchOnlyUnread": true,
+                "includeAttachments": false,
+                "labelIds": "@{join(parameters('labelFilters'), ',')}",
+                "top": "@parameters('maxEmailsPerRun')"
+              }
+            }
+          },
+          "Filter_By_Sender": {
+            "type": "If",
+            "expression": {
+              "and": [
+                {
+                  "greater": [
+                    "@length(parameters('senderFilters'))",
+                    0
+                  ]
+                }
+              ]
+            },
+            "actions": {
+              "Apply_Sender_Filter": {
+                "type": "Query",
+                "inputs": {
+                  "from": "@coalesce(body('Get_Unread_Emails')?['value'], json('[]'))",
+                  "where": "@contains(parameters('senderFilters'), item()?['From'])"
+                }
+              }
+            },
+            "else": {
+              "actions": {
+                "Use_All_Emails": {
+                  "type": "Compose",
+                  "inputs": "@coalesce(body('Get_Unread_Emails')?['value'], json('[]'))"
+                }
+              }
+            },
+            "runAfter": {
+              "Get_Unread_Emails": ["Succeeded"]
+            }
+          },
+          "Get_Filtered_Emails": {
+            "type": "Compose",
+            "inputs": "@coalesce(body('Apply_Sender_Filter'), outputs('Use_All_Emails'), json('[]'))",
+            "runAfter": {
+              "Filter_By_Sender": ["Succeeded"]
+            }
+          },
+          "Condition_Has_Emails": {
+            "type": "If",
+            "expression": {
+              "and": [
+                {
+                  "greater": [
+                    "@length(outputs('Get_Filtered_Emails'))",
+                    0
+                  ]
+                }
+              ]
+            },
+            "actions": {
+              "Get_Existing_Planner_Tasks": {
+                "type": "Http",
+                "inputs": {
+                  "method": "GET",
+                  "uri": "https://graph.microsoft.com/v1.0/planner/plans/@{parameters('targetPlanId')}/tasks",
+                  "authentication": {
+                    "type": "ManagedServiceIdentity",
+                    "audience": "https://graph.microsoft.com"
+                  }
+                }
+              },
+              "For_Each_Email": {
+                "type": "Foreach",
+                "foreach": "@outputs('Get_Filtered_Emails')",
+                "actions": {
+                  "Compose_Task_Title": {
+                    "type": "Compose",
+                    "inputs": "@{concat(parameters('taskTitlePrefix'), ' ', coalesce(item()?['Subject'], '(No Subject)'))}"
+                  },
+                  "Compose_Task_Description": {
+                    "type": "Compose",
+                    "inputs": "@{concat('From: ', coalesce(item()?['From'], 'Unknown'), ' | ', coalesce(item()?['BodyPreview'], ''))}"
+                  },
+                  "Check_Duplicate_Task": {
+                    "type": "Query",
+                    "inputs": {
+                      "from": "@coalesce(body('Get_Existing_Planner_Tasks')?['value'], json('[]'))",
+                      "where": "@equals(item()?['title'], outputs('Compose_Task_Title'))"
+                    },
+                    "runAfter": {
+                      "Compose_Task_Description": ["Succeeded"]
+                    }
+                  },
+                  "Condition_Not_Duplicate": {
+                    "type": "If",
+                    "expression": {
+                      "and": [
+                        {
+                          "equals": [
+                            "@length(body('Check_Duplicate_Task'))",
+                            0
+                          ]
+                        }
+                      ]
+                    },
+                    "actions": {
+                      "Create_Planner_Task": {
+                        "type": "Http",
+                        "inputs": {
+                          "method": "POST",
+                          "uri": "https://graph.microsoft.com/v1.0/planner/tasks",
+                          "headers": {
+                            "Content-Type": "application/json"
+                          },
+                          "authentication": {
+                            "type": "ManagedServiceIdentity",
+                            "audience": "https://graph.microsoft.com"
+                          },
+                          "body": {
+                            "planId": "@parameters('targetPlanId')",
+                            "bucketId": "@{if(empty(parameters('targetBucketId')), null, parameters('targetBucketId'))}",
+                            "title": "@outputs('Compose_Task_Title')",
+                            "dueDateTime": "@{addDays(utcNow(), 1)}",
+                            "priority": 5
+                          }
+                        }
+                      },
+                      "Update_Task_Details": {
+                        "type": "Http",
+                        "inputs": {
+                          "method": "PATCH",
+                          "uri": "https://graph.microsoft.com/v1.0/planner/tasks/@{body('Create_Planner_Task')?['id']}/details",
+                          "headers": {
+                            "Content-Type": "application/json",
+                            "If-Match": "@body('Create_Planner_Task')?['@odata.etag']"
+                          },
+                          "authentication": {
+                            "type": "ManagedServiceIdentity",
+                            "audience": "https://graph.microsoft.com"
+                          },
+                          "body": {
+                            "description": "@outputs('Compose_Task_Description')"
+                          }
+                        },
+                        "runAfter": {
+                          "Create_Planner_Task": ["Succeeded"]
+                        }
+                      },
+                      "Increment_Created_Count": {
+                        "type": "IncrementVariable",
+                        "inputs": {
+                          "name": "createdTaskCount",
+                          "value": 1
+                        },
+                        "runAfter": {
+                          "Create_Planner_Task": ["Succeeded"]
+                        }
+                      },
+                      "Condition_Mark_As_Read": {
+                        "type": "If",
+                        "expression": {
+                          "and": [
+                            {
+                              "equals": ["@parameters('markEmailsAsRead')", true]
+                            }
+                          ]
+                        },
+                        "actions": {
+                          "Mark_Email_Read": {
+                            "type": "ApiConnection",
+                            "inputs": {
+                              "host": {
+                                "connection": {
+                                  "name": "@parameters('$connections')['gmail']['connectionId']"
+                                }
+                              },
+                              "method": "post",
+                              "path": "/Mail/@{encodeURIComponent(item()?['Id'])}/Read"
+                            }
+                          }
+                        },
+                        "runAfter": {
+                          "Increment_Created_Count": ["Succeeded"]
+                        }
+                      }
+                    },
+                    "else": {
+                      "actions": {
+                        "Increment_Skipped_Count": {
+                          "type": "IncrementVariable",
+                          "inputs": {
+                            "name": "skippedEmailCount",
+                            "value": 1
+                          }
+                        }
+                      }
+                    },
+                    "runAfter": {
+                      "Check_Duplicate_Task": ["Succeeded"]
+                    }
+                  }
+                },
+                "runAfter": {
+                  "Get_Existing_Planner_Tasks": ["Succeeded"]
+                }
+              }
+            },
+            "runAfter": {
+              "Get_Filtered_Emails": ["Succeeded"]
+            }
+          },
+          "Log_Run_Summary": {
+            "type": "Compose",
+            "inputs": {
+              "runDate": "@utcNow()",
+              "emailsProcessed": "@length(outputs('Get_Filtered_Emails'))",
+              "tasksCreated": "@variables('createdTaskCount')",
+              "emailsSkipped": "@variables('skippedEmailCount')",
+              "status": "completed"
+            },
+            "runAfter": {
+              "Condition_Has_Emails": ["Succeeded"]
+            }
+          }
+        },
+        "else": {
+          "actions": {
+            "Set_Config_Error": {
+              "type": "SetVariable",
+              "inputs": {
+                "name": "errorMessage",
+                "value": "Gmail daily routine skipped: targetPlanId is not configured in settings. Please set integrationSettings.gmail.taskCreation.targetPlanId."
+              }
+            }
+          }
+        },
+        "runAfter": {
+          "Initialize_Variables": ["Succeeded"]
+        }
+      },
+      "Error_Handler": {
+        "type": "Compose",
+        "inputs": {
+          "runDate": "@utcNow()",
+          "tasksCreated": "@variables('createdTaskCount')",
+          "errorMessage": "@variables('errorMessage')",
+          "status": "failed"
+        },
+        "runAfter": {
+          "Condition_Plan_Configured": ["Failed", "TimedOut"]
+        }
+      }
+    },
+    "outputs": {
+      "createdTaskCount": {
+        "type": "integer",
+        "description": "Number of Planner tasks created from Gmail emails"
+      },
+      "skippedEmailCount": {
+        "type": "integer",
+        "description": "Number of emails skipped due to duplicate detection"
+      },
+      "errorMessage": {
+        "type": "string",
+        "description": "Error or warning message from the run"
+      }
+    }
+  }
+}

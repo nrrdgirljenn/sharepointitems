@@ -33,8 +33,8 @@
               },
               "source": {
                 "type": "string",
-                "description": "Source system (Notion or Planner)",
-                "enum": ["Notion", "Planner", "notion", "planner"]
+                "description": "Source system (Notion, Planner, or Gmail)",
+                "enum": ["Notion", "Planner", "Gmail", "notion", "planner", "gmail"]
               },
               "newStatus": {
                 "type": "string",
@@ -279,6 +279,73 @@
                 },
                 "runAfter": {
                   "Update_Planner_Task": ["Failed"]
+                }
+              }
+            }
+          }
+        },
+          "gmail": {
+            "case": "gmail",
+            "actions": {
+              "Get_Gmail_Task_For_Etag": {
+                "type": "Http",
+                "inputs": {
+                  "method": "GET",
+                  "uri": "https://graph.microsoft.com/v1.0/planner/tasks/@{triggerBody()?['taskId']}",
+                  "authentication": {
+                    "type": "ManagedServiceIdentity",
+                    "audience": "https://graph.microsoft.com"
+                  }
+                }
+              },
+              "Map_Gmail_Task_Status": {
+                "type": "Compose",
+                "inputs": {
+                  "percentComplete": "@{if(equals(triggerBody()?['newStatus'], 'completed'), 100, if(equals(triggerBody()?['newStatus'], 'inProgress'), 50, 0))}"
+                },
+                "runAfter": {
+                  "Get_Gmail_Task_For_Etag": ["Succeeded"]
+                }
+              },
+              "Update_Gmail_Planner_Task": {
+                "type": "Http",
+                "inputs": {
+                  "method": "PATCH",
+                  "uri": "https://graph.microsoft.com/v1.0/planner/tasks/@{triggerBody()?['taskId']}",
+                  "headers": {
+                    "If-Match": "@body('Get_Gmail_Task_For_Etag')?['@odata.etag']",
+                    "Content-Type": "application/json"
+                  },
+                  "authentication": {
+                    "type": "ManagedServiceIdentity",
+                    "audience": "https://graph.microsoft.com"
+                  },
+                  "body": {
+                    "percentComplete": "@int(outputs('Map_Gmail_Task_Status')?['percentComplete'])"
+                  }
+                },
+                "runAfter": {
+                  "Map_Gmail_Task_Status": ["Succeeded"]
+                }
+              },
+              "Set_Gmail_Success": {
+                "type": "SetVariable",
+                "inputs": {
+                  "name": "updateSuccess",
+                  "value": true
+                },
+                "runAfter": {
+                  "Update_Gmail_Planner_Task": ["Succeeded"]
+                }
+              },
+              "Set_Gmail_Error": {
+                "type": "SetVariable",
+                "inputs": {
+                  "name": "errorMessage",
+                  "value": "Failed to update Gmail task in Planner. Please try again."
+                },
+                "runAfter": {
+                  "Update_Gmail_Planner_Task": ["Failed"]
                 }
               }
             }
