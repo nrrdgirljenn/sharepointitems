@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Claude Code Skills Dashboard</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0f1117;
+      --surface:   #1a1d27;
+      --border:    #2a2d3a;
+      --accent:    #cc785c;
+      --accent2:   #7c6af7;
+      --text:      #e8e9f0;
+      --muted:     #7a7d8e;
+      --green:     #4caf7d;
+      --yellow:    #e6b84f;
+      --red:       #e05c5c;
+      --radius:    12px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 40px 24px 80px;
+    }
+
+    header {
+      max-width: 960px;
+      margin: 0 auto 48px;
+    }
+
+    header h1 {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      margin-bottom: 6px;
+    }
+
+    header h1 span {
+      color: var(--accent);
+    }
+
+    header p {
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+      gap: 20px;
+      max-width: 960px;
+      margin: 0 auto 40px;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 28px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      transition: border-color 0.15s, transform 0.15s;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .card:hover {
+      border-color: #3a3d4a;
+      transform: translateY(-2px);
+    }
+
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      border-radius: var(--radius) var(--radius) 0 0;
+    }
+
+    .card.morning::before  { background: linear-gradient(90deg, #e6b84f, #e08a2a); }
+    .card.parallel::before { background: linear-gradient(90deg, #7c6af7, #4c9af7); }
+    .card.backlog::before  { background: linear-gradient(90deg, #4caf7d, #2a9e8e); }
+    .card.meta::before     { background: linear-gradient(90deg, #cc785c, #e05c5c); }
+
+    .card-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      flex-shrink: 0;
+    }
+
+    .morning  .icon { background: rgba(230,184,79,0.15); }
+    .parallel .icon { background: rgba(124,106,247,0.15); }
+    .backlog  .icon { background: rgba(76,175,125,0.15); }
+    .meta     .icon { background: rgba(204,120,92,0.15); }
+
+    .card-title {
+      flex: 1;
+    }
+
+    .card-title h2 {
+      font-size: 17px;
+      font-weight: 600;
+      margin-bottom: 3px;
+    }
+
+    .card-title .timing {
+      font-size: 12px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .morning  .timing { color: var(--yellow); }
+    .parallel .timing { color: var(--accent2); }
+    .backlog  .timing { color: var(--green); }
+    .meta     .timing { color: var(--accent); }
+
+    .quote {
+      font-size: 13px;
+      color: var(--muted);
+      font-style: italic;
+      line-height: 1.5;
+      border-left: 2px solid var(--border);
+      padding-left: 12px;
+    }
+
+    .description {
+      font-size: 14px;
+      color: #b0b3c4;
+      line-height: 1.6;
+    }
+
+    .command-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-top: 4px;
+    }
+
+    .command-pill {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-size: 13px;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .copy-btn {
+      flex-shrink: 0;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 16px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text);
+      cursor: pointer;
+      transition: background 0.1s, border-color 0.1s, color 0.1s;
+      white-space: nowrap;
+    }
+
+    .copy-btn:hover {
+      background: rgba(255,255,255,0.06);
+      border-color: #4a4d5a;
+    }
+
+    .copy-btn.copied {
+      color: var(--green);
+      border-color: var(--green);
+    }
+
+    .tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .tag {
+      font-size: 11px;
+      font-weight: 500;
+      padding: 3px 9px;
+      border-radius: 20px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border);
+      color: var(--muted);
+    }
+
+    .bonus-section {
+      max-width: 960px;
+      margin: 0 auto;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 24px 28px;
+      display: flex;
+      align-items: center;
+      gap: 20px;
+    }
+
+    .bonus-section .icon {
+      width: 48px;
+      height: 48px;
+      font-size: 24px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 10px;
+      flex-shrink: 0;
+    }
+
+    .bonus-content {
+      flex: 1;
+    }
+
+    .bonus-content h3 {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .bonus-content p {
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 32px;
+      left: 50%;
+      transform: translateX(-50%) translateY(20px);
+      background: var(--surface);
+      border: 1px solid var(--green);
+      color: var(--green);
+      border-radius: 8px;
+      padding: 10px 20px;
+      font-size: 13px;
+      font-weight: 500;
+      opacity: 0;
+      transition: opacity 0.2s, transform 0.2s;
+      pointer-events: none;
+      white-space: nowrap;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    @media (max-width: 500px) {
+      .grid { grid-template-columns: 1fr; }
+      .bonus-section { flex-direction: column; align-items: flex-start; }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>Claude Code <span>Skills Dashboard</span></h1>
+    <p>Click "Copy" on any skill, then paste the command into Claude Code.</p>
+  </header>
+
+  <div class="grid">
+
+    <!-- Morning Brief -->
+    <div class="card morning">
+      <div class="card-header">
+        <div class="icon">☀️</div>
+        <div class="card-title">
+          <h2>Morning Brief</h2>
+          <div class="timing">Run every morning</div>
+        </div>
+      </div>
+      <div class="quote">"Every morning I type one word and Claude reads my inbox, my calendar, and my projects."</div>
+      <div class="description">
+        Pulls today's events from your calendar, open tasks from Notion and Microsoft Planner, and outputs a focused 3–5 item priority list. Ready in under 2 minutes.
+      </div>
+      <div class="tags">
+        <span class="tag">Notion</span>
+        <span class="tag">Microsoft Planner</span>
+        <span class="tag">Calendar</span>
+      </div>
+      <div class="command-row">
+        <div class="command-pill">/morning-brief</div>
+        <button class="copy-btn" onclick="copyCmd(this, '/morning-brief')">Copy</button>
+      </div>
+    </div>
+
+    <!-- Parallel Workers -->
+    <div class="card parallel">
+      <div class="card-header">
+        <div class="icon">⚡</div>
+        <div class="card-title">
+          <h2>Parallel Workers</h2>
+          <div class="timing">Use for speed</div>
+        </div>
+      </div>
+      <div class="quote">"One drafts, another researches, another edits. All happening at once."</div>
+      <div class="description">
+        Spawns three sub-agents simultaneously — researcher, drafter, and editor — then combines their outputs into a polished result. Replace <code style="background:#0f1117;padding:1px 5px;border-radius:4px;font-size:12px;">&lt;task&gt;</code> with what you need.
+      </div>
+      <div class="tags">
+        <span class="tag">Multi-agent</span>
+        <span class="tag">Parallel</span>
+        <span class="tag">Any task</span>
+      </div>
+      <div class="command-row">
+        <div class="command-pill">/parallel-workers &lt;task&gt;</div>
+        <button class="copy-btn" onclick="copyCmd(this, '/parallel-workers ')">Copy</button>
+      </div>
+    </div>
+
+    <!-- Process Backlog -->
+    <div class="card backlog">
+      <div class="card-header">
+        <div class="icon">🌙</div>
+        <div class="card-title">
+          <h2>Process Backlog</h2>
+          <div class="timing">Run before you sign off</div>
+        </div>
+      </div>
+      <div class="quote">"At night I set Claude to process my backlog while I sleep. Everything is ready by morning."</div>
+      <div class="description">
+        Sweeps your Notion and Planner queues, drafts email replies, summarizes unread documents, and closes stale tasks. Outputs a clean report of what was handled and what still needs you.
+      </div>
+      <div class="tags">
+        <span class="tag">Notion</span>
+        <span class="tag">Microsoft Planner</span>
+        <span class="tag">Email drafts</span>
+      </div>
+      <div class="command-row">
+        <div class="command-pill">/process-backlog</div>
+        <button class="copy-btn" onclick="copyCmd(this, '/process-backlog')">Copy</button>
+      </div>
+    </div>
+
+    <!-- Task to Skill -->
+    <div class="card meta">
+      <div class="card-header">
+        <div class="icon">🔧</div>
+        <div class="card-title">
+          <h2>Task to Skill</h2>
+          <div class="timing">Whenever you repeat yourself</div>
+        </div>
+      </div>
+      <div class="quote">"Any task I do more than once, I turn into a skill. One word, and Claude handles the rest."</div>
+      <div class="description">
+        Describe any workflow you keep repeating and this skill writes a new SKILL.md for you. Next time it's a single command — no prompt, no setup. Describe your task in quotes.
+      </div>
+      <div class="tags">
+        <span class="tag">Meta-skill</span>
+        <span class="tag">Automation</span>
+        <span class="tag">Any workflow</span>
+      </div>
+      <div class="command-row">
+        <div class="command-pill">/task-to-skill "&lt;describe task&gt;"</div>
+        <button class="copy-btn" onclick="copyCmd(this, '/task-to-skill \"\"')">Copy</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Bonus tip -->
+  <div class="bonus-section">
+    <div class="icon" style="display:flex;align-items:center;justify-content:center;">🧠</div>
+    <div class="bonus-content">
+      <h3>Memory — "Claude remembers every project, every preference, every conversation"</h3>
+      <p>This isn't a skill — it's a <code style="background:#0f1117;padding:1px 5px;border-radius:4px;">CLAUDE.md</code> file at the root of your repo.
+         Run <strong>/init</strong> in Claude Code to generate one from your existing codebase.
+         Every session will pick up exactly where you left off.</p>
+    </div>
+    <div class="command-row" style="flex-shrink:0;">
+      <div class="command-pill" style="background:#0f1117;border:1px solid #2a2d3a;border-radius:8px;padding:10px 14px;font-family:monospace;font-size:13px;">/init</div>
+      <button class="copy-btn" onclick="copyCmd(this, '/init')">Copy</button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast">Copied to clipboard</div>
+
+  <script>
+    function copyCmd(btn, cmd) {
+      navigator.clipboard.writeText(cmd).then(() => {
+        btn.textContent = 'Copied!';
+        btn.classList.add('copied');
+        setTimeout(() => {
+          btn.textContent = 'Copy';
+          btn.classList.remove('copied');
+        }, 1800);
+
+        const toast = document.getElementById('toast');
+        toast.classList.add('show');
+        setTimeout(() => toast.classList.remove('show'), 2000);
+      });
+    }
+  </script>
+
+</body>
+</html>
