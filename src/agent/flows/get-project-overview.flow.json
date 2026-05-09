@@ -1,0 +1,284 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "metadata": {
+      "flowId": "get-project-overview",
+      "displayName": "Get Project Overview",
+      "description": "Fetches all tasks for a project from both Planner and Notion, identifies linked task pairs, and returns a unified project view",
+      "author": "Daily Project Checklist Agent",
+      "version": "1.0.0"
+    },
+    "triggers": {
+      "manual": {
+        "type": "Request",
+        "kind": "PowerVirtualAgents",
+        "inputs": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "plannerPlanId": {
+                "type": "string",
+                "description": "Planner plan ID for the project"
+              },
+              "notionDatabaseId": {
+                "type": "string",
+                "description": "Notion database ID for the project"
+              },
+              "projectName": {
+                "type": "string",
+                "description": "Human-readable project name (for display)"
+              },
+              "includeCompleted": {
+                "type": "boolean",
+                "description": "Include completed tasks",
+                "default": false
+              }
+            },
+            "required": ["plannerPlanId", "notionDatabaseId"]
+          }
+        }
+      }
+    },
+    "actions": {
+      "Initialize_Variables": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            { "name": "linkedTasks", "type": "array", "value": [] },
+            { "name": "plannerOnlyTasks", "type": "array", "value": [] },
+            { "name": "notionOnlyTasks", "type": "array", "value": [] },
+            { "name": "errorMessage", "type": "string", "value": "" }
+          ]
+        },
+        "runAfter": {}
+      },
+
+      "Fetch_Planner_Tasks": {
+        "type": "Http",
+        "inputs": {
+          "method": "GET",
+          "uri": "https://graph.microsoft.com/v1.0/planner/plans/@{triggerBody()?['plannerPlanId']}/tasks",
+          "authentication": {
+            "type": "ManagedServiceIdentity",
+            "audience": "https://graph.microsoft.com"
+          }
+        },
+        "runAfter": { "Initialize_Variables": ["Succeeded"] }
+      },
+
+      "Fetch_Planner_Plan_Details": {
+        "type": "Http",
+        "inputs": {
+          "method": "GET",
+          "uri": "https://graph.microsoft.com/v1.0/planner/plans/@{triggerBody()?['plannerPlanId']}",
+          "authentication": {
+            "type": "ManagedServiceIdentity",
+            "audience": "https://graph.microsoft.com"
+          }
+        },
+        "runAfter": { "Initialize_Variables": ["Succeeded"] }
+      },
+
+      "Fetch_Notion_Tasks": {
+        "type": "Http",
+        "inputs": {
+          "method": "POST",
+          "uri": "https://api.notion.com/v1/databases/@{triggerBody()?['notionDatabaseId']}/query",
+          "headers": {
+            "Authorization": "Bearer @{parameters('notionApiKey')}",
+            "Notion-Version": "2022-06-28",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "filter": {
+              "or": [
+                {
+                  "property": "Status",
+                  "status": { "does_not_equal": "Done" }
+                }
+              ]
+            },
+            "sorts": [
+              { "property": "Priority", "direction": "ascending" },
+              { "property": "Due Date", "direction": "ascending" }
+            ]
+          }
+        },
+        "runAfter": { "Initialize_Variables": ["Succeeded"] }
+      },
+
+      "Filter_Active_Planner_Tasks": {
+        "type": "Query",
+        "inputs": {
+          "from": "@body('Fetch_Planner_Tasks')?['value']",
+          "where": "@or(equals(triggerBody()?['includeCompleted'], true), less(item()?['percentComplete'], 100))"
+        },
+        "runAfter": {
+          "Fetch_Planner_Tasks": ["Succeeded"],
+          "Fetch_Notion_Tasks": ["Succeeded"]
+        }
+      },
+
+      "Get_Planner_Task_Details_Batch": {
+        "type": "Http",
+        "inputs": {
+          "method": "POST",
+          "uri": "https://graph.microsoft.com/v1.0/$batch",
+          "headers": { "Content-Type": "application/json" },
+          "authentication": {
+            "type": "ManagedServiceIdentity",
+            "audience": "https://graph.microsoft.com"
+          },
+          "body": {
+            "requests": "@{take(body('Filter_Active_Planner_Tasks'), 20)}"
+          }
+        },
+        "runAfter": { "Filter_Active_Planner_Tasks": ["Succeeded"] }
+      },
+
+      "Transform_Planner_Tasks": {
+        "type": "Select",
+        "inputs": {
+          "from": "@body('Filter_Active_Planner_Tasks')",
+          "select": {
+            "id": "@item()?['id']",
+            "title": "@item()?['title']",
+            "status": "@{if(equals(item()?['percentComplete'], 0), 'Not Started', if(equals(item()?['percentComplete'], 100), 'Completed', 'In Progress'))}",
+            "percentComplete": "@item()?['percentComplete']",
+            "priority": "@{if(lessOrEquals(item()?['priority'], 2), 'high', if(lessOrEquals(item()?['priority'], 6), 'medium', 'low'))}",
+            "dueDate": "@{coalesce(item()?['dueDateTime'], '')}",
+            "planId": "@item()?['planId']",
+            "bucketId": "@item()?['bucketId']",
+            "source": "Planner",
+            "createdDateTime": "@item()?['createdDateTime']"
+          }
+        },
+        "runAfter": { "Filter_Active_Planner_Tasks": ["Succeeded"] }
+      },
+
+      "Transform_Notion_Tasks": {
+        "type": "Select",
+        "inputs": {
+          "from": "@body('Fetch_Notion_Tasks')?['results']",
+          "select": {
+            "id": "@item()?['id']",
+            "title": "@{first(item()?['properties']?['Name']?['title'])?['plain_text']}",
+            "status": "@item()?['properties']?['Status']?['status']?['name']",
+            "priority": "@{coalesce(item()?['properties']?['Priority']?['select']?['name'], 'medium')}",
+            "dueDate": "@{coalesce(item()?['properties']?['Due Date']?['date']?['start'], '')}",
+            "linkedPlannerTaskId": "@{first(item()?['properties']?['Planner Task ID']?['rich_text'])?['plain_text']}",
+            "linkedPlannerPlanId": "@{first(item()?['properties']?['Planner Plan ID']?['rich_text'])?['plain_text']}",
+            "url": "@item()?['url']",
+            "source": "Notion",
+            "lastEdited": "@item()?['last_edited_time']"
+          }
+        },
+        "runAfter": { "Fetch_Notion_Tasks": ["Succeeded"] }
+      },
+
+      "Find_Linked_Pairs": {
+        "type": "Select",
+        "inputs": {
+          "from": "@body('Transform_Notion_Tasks')",
+          "select": {
+            "notionId": "@item()?['id']",
+            "notionTitle": "@item()?['title']",
+            "notionStatus": "@item()?['status']",
+            "notionPriority": "@item()?['priority']",
+            "notionDueDate": "@item()?['dueDate']",
+            "notionUrl": "@item()?['url']",
+            "linkedPlannerTaskId": "@item()?['linkedPlannerTaskId']",
+            "plannerTask": "@first(where(body('Transform_Planner_Tasks'), equals(item()?['id'], item()?['linkedPlannerTaskId'])))",
+            "isLinked": "@not(equals(item()?['linkedPlannerTaskId'], ''))",
+            "source": "linked"
+          }
+        },
+        "runAfter": {
+          "Transform_Planner_Tasks": ["Succeeded"],
+          "Transform_Notion_Tasks": ["Succeeded"]
+        }
+      },
+
+      "Get_Planner_Only_Tasks": {
+        "type": "Query",
+        "inputs": {
+          "from": "@body('Transform_Planner_Tasks')",
+          "where": "@not(contains(join(body('Transform_Notion_Tasks'), ' '), item()?['id']))"
+        },
+        "runAfter": { "Find_Linked_Pairs": ["Succeeded"] }
+      },
+
+      "Get_Notion_Only_Tasks": {
+        "type": "Query",
+        "inputs": {
+          "from": "@body('Transform_Notion_Tasks')",
+          "where": "@equals(item()?['linkedPlannerTaskId'], '')"
+        },
+        "runAfter": { "Find_Linked_Pairs": ["Succeeded"] }
+      },
+
+      "Response": {
+        "type": "Response",
+        "kind": "PowerVirtualAgents",
+        "inputs": {
+          "statusCode": 200,
+          "body": {
+            "projectName": "@{coalesce(triggerBody()?['projectName'], body('Fetch_Planner_Plan_Details')?['title'], 'Project')}",
+            "plannerPlanId": "@triggerBody()?['plannerPlanId']",
+            "notionDatabaseId": "@triggerBody()?['notionDatabaseId']",
+            "linkedTasks": "@body('Find_Linked_Pairs')",
+            "plannerOnlyTasks": "@body('Get_Planner_Only_Tasks')",
+            "notionOnlyTasks": "@body('Get_Notion_Only_Tasks')",
+            "linkedCount": "@length(where(body('Find_Linked_Pairs'), equals(item()?['isLinked'], true)))",
+            "plannerOnlyCount": "@length(body('Get_Planner_Only_Tasks'))",
+            "notionOnlyCount": "@length(body('Get_Notion_Only_Tasks'))",
+            "totalTasks": "@add(add(length(where(body('Find_Linked_Pairs'), equals(item()?['isLinked'], true))), length(body('Get_Planner_Only_Tasks'))), length(body('Get_Notion_Only_Tasks')))",
+            "errorMessage": "@variables('errorMessage')",
+            "lastSync": "@utcNow()"
+          }
+        },
+        "runAfter": {
+          "Get_Planner_Only_Tasks": ["Succeeded", "Failed"],
+          "Get_Notion_Only_Tasks": ["Succeeded", "Failed"]
+        }
+      },
+
+      "Error_Response": {
+        "type": "Response",
+        "kind": "PowerVirtualAgents",
+        "inputs": {
+          "statusCode": 200,
+          "body": {
+            "projectName": "@{coalesce(triggerBody()?['projectName'], 'Project')}",
+            "linkedTasks": [],
+            "plannerOnlyTasks": [],
+            "notionOnlyTasks": [],
+            "linkedCount": 0,
+            "plannerOnlyCount": 0,
+            "notionOnlyCount": 0,
+            "totalTasks": 0,
+            "errorMessage": "Failed to fetch project overview. Check Planner plan ID and Notion database ID.",
+            "lastSync": null
+          }
+        },
+        "runAfter": {
+          "Fetch_Planner_Tasks": ["Failed", "TimedOut"],
+          "Fetch_Notion_Tasks": ["Failed", "TimedOut"]
+        }
+      }
+    },
+    "outputs": {
+      "projectName": { "type": "string", "description": "Display name of the project" },
+      "linkedTasks": { "type": "array", "description": "Tasks that exist in both Planner and Notion" },
+      "plannerOnlyTasks": { "type": "array", "description": "Tasks that only exist in Planner" },
+      "notionOnlyTasks": { "type": "array", "description": "Tasks that only exist in Notion" },
+      "linkedCount": { "type": "integer", "description": "Number of linked task pairs" },
+      "plannerOnlyCount": { "type": "integer", "description": "Number of Planner-only tasks" },
+      "notionOnlyCount": { "type": "integer", "description": "Number of Notion-only tasks" },
+      "totalTasks": { "type": "integer", "description": "Total task count across all categories" },
+      "errorMessage": { "type": "string", "description": "Error message if fetch failed" },
+      "lastSync": { "type": "string", "description": "Timestamp of last sync" }
+    }
+  }
+}

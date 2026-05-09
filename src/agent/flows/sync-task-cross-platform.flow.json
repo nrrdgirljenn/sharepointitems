@@ -1,0 +1,296 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "metadata": {
+      "flowId": "sync-task-cross-platform",
+      "displayName": "Sync Task Cross-Platform",
+      "description": "When a task is updated in one platform, propagates the status change to the linked task in the other platform",
+      "author": "Daily Project Checklist Agent",
+      "version": "1.0.0"
+    },
+    "triggers": {
+      "manual": {
+        "type": "Request",
+        "kind": "PowerVirtualAgents",
+        "inputs": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "sourceTaskId": {
+                "type": "string",
+                "description": "ID of the task that was just updated"
+              },
+              "sourcePlatform": {
+                "type": "string",
+                "description": "Platform where the update originated (Notion or Planner)",
+                "enum": ["Notion", "Planner"]
+              },
+              "newStatus": {
+                "type": "string",
+                "description": "New status to apply: notStarted, inProgress, completed",
+                "enum": ["notStarted", "inProgress", "completed"]
+              },
+              "newPriority": {
+                "type": "string",
+                "description": "New priority (optional): high, medium, low"
+              },
+              "newDueDate": {
+                "type": "string",
+                "description": "New due date in ISO 8601 format (optional)"
+              },
+              "linkedTaskId": {
+                "type": "string",
+                "description": "ID of the task on the other platform to update. If omitted the flow will look it up from the source task's metadata."
+              }
+            },
+            "required": ["sourceTaskId", "sourcePlatform", "newStatus"]
+          }
+        }
+      }
+    },
+    "actions": {
+      "Initialize_Variables": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            { "name": "resolvedLinkedId", "type": "string", "value": "" },
+            { "name": "syncSuccess", "type": "boolean", "value": false },
+            { "name": "errorMessage", "type": "string", "value": "" }
+          ]
+        },
+        "runAfter": {}
+      },
+
+      "Condition_Linked_Id_Provided": {
+        "type": "If",
+        "expression": {
+          "and": [
+            { "not": { "equals": ["@triggerBody()?['linkedTaskId']", null] } },
+            { "not": { "equals": ["@triggerBody()?['linkedTaskId']", ""] } }
+          ]
+        },
+        "actions": {
+          "Use_Provided_Linked_Id": {
+            "type": "SetVariable",
+            "inputs": { "name": "resolvedLinkedId", "value": "@triggerBody()?['linkedTaskId']" }
+          }
+        },
+        "else": {
+          "actions": {
+            "Lookup_Linked_Id_Switch": {
+              "type": "Switch",
+              "expression": "@triggerBody()?['sourcePlatform']",
+              "cases": {
+                "Notion": {
+                  "case": "Notion",
+                  "actions": {
+                    "Get_Notion_Page_For_Planner_Link": {
+                      "type": "Http",
+                      "inputs": {
+                        "method": "GET",
+                        "uri": "https://api.notion.com/v1/pages/@{triggerBody()?['sourceTaskId']}",
+                        "headers": {
+                          "Authorization": "Bearer @{parameters('notionApiKey')}",
+                          "Notion-Version": "2022-06-28"
+                        }
+                      }
+                    },
+                    "Set_Planner_Id_From_Notion": {
+                      "type": "SetVariable",
+                      "inputs": {
+                        "name": "resolvedLinkedId",
+                        "value": "@{first(body('Get_Notion_Page_For_Planner_Link')?['properties']?['Planner Task ID']?['rich_text'])?['plain_text']}"
+                      },
+                      "runAfter": { "Get_Notion_Page_For_Planner_Link": ["Succeeded"] }
+                    }
+                  }
+                },
+                "Planner": {
+                  "case": "Planner",
+                  "actions": {
+                    "Get_Planner_Task_Details_For_Notion_Link": {
+                      "type": "Http",
+                      "inputs": {
+                        "method": "GET",
+                        "uri": "https://graph.microsoft.com/v1.0/planner/tasks/@{triggerBody()?['sourceTaskId']}/details",
+                        "authentication": {
+                          "type": "ManagedServiceIdentity",
+                          "audience": "https://graph.microsoft.com"
+                        }
+                      }
+                    },
+                    "Extract_Notion_Id_From_Description": {
+                      "type": "Compose",
+                      "inputs": "@{if(contains(body('Get_Planner_Task_Details_For_Notion_Link')?['description'], 'Notion Page ID: '), trim(last(split(first(where(split(body('Get_Planner_Task_Details_For_Notion_Link')?['description'], '\n'), startsWith(item(), 'Notion Page ID: '))), 'Notion Page ID: '))), '')}",
+                      "runAfter": { "Get_Planner_Task_Details_For_Notion_Link": ["Succeeded"] }
+                    },
+                    "Set_Notion_Id_From_Planner": {
+                      "type": "SetVariable",
+                      "inputs": { "name": "resolvedLinkedId", "value": "@outputs('Extract_Notion_Id_From_Description')" },
+                      "runAfter": { "Extract_Notion_Id_From_Description": ["Succeeded"] }
+                    }
+                  }
+                }
+              },
+              "default": { "actions": {} }
+            }
+          }
+        },
+        "runAfter": { "Initialize_Variables": ["Succeeded"] }
+      },
+
+      "Condition_Has_Linked_Id": {
+        "type": "If",
+        "expression": {
+          "and": [
+            { "not": { "equals": ["@variables('resolvedLinkedId')", ""] } },
+            { "not": { "equals": ["@variables('resolvedLinkedId')", null] } }
+          ]
+        },
+        "actions": {
+          "Apply_Update_Switch": {
+            "type": "Switch",
+            "expression": "@triggerBody()?['sourcePlatform']",
+            "cases": {
+              "Notion": {
+                "case": "Notion",
+                "actions": {
+                  "Get_Planner_Task_ETag": {
+                    "type": "Http",
+                    "inputs": {
+                      "method": "GET",
+                      "uri": "https://graph.microsoft.com/v1.0/planner/tasks/@{variables('resolvedLinkedId')}",
+                      "authentication": {
+                        "type": "ManagedServiceIdentity",
+                        "audience": "https://graph.microsoft.com"
+                      }
+                    }
+                  },
+                  "Build_Planner_Update": {
+                    "type": "Compose",
+                    "inputs": {
+                      "percentComplete": "@{if(equals(triggerBody()?['newStatus'], 'completed'), 100, if(equals(triggerBody()?['newStatus'], 'inProgress'), 50, 0))}"
+                    },
+                    "runAfter": { "Get_Planner_Task_ETag": ["Succeeded"] }
+                  },
+                  "Patch_Planner_Task": {
+                    "type": "Http",
+                    "inputs": {
+                      "method": "PATCH",
+                      "uri": "https://graph.microsoft.com/v1.0/planner/tasks/@{variables('resolvedLinkedId')}",
+                      "headers": {
+                        "If-Match": "@body('Get_Planner_Task_ETag')?['@odata.etag']",
+                        "Content-Type": "application/json"
+                      },
+                      "authentication": {
+                        "type": "ManagedServiceIdentity",
+                        "audience": "https://graph.microsoft.com"
+                      },
+                      "body": "@outputs('Build_Planner_Update')"
+                    },
+                    "runAfter": { "Build_Planner_Update": ["Succeeded"] }
+                  },
+                  "Set_Planner_Sync_Success": {
+                    "type": "SetVariable",
+                    "inputs": { "name": "syncSuccess", "value": true },
+                    "runAfter": { "Patch_Planner_Task": ["Succeeded"] }
+                  },
+                  "Set_Planner_Sync_Error": {
+                    "type": "SetVariable",
+                    "inputs": {
+                      "name": "errorMessage",
+                      "value": "Failed to update linked Planner task @{variables('resolvedLinkedId')}: @{body('Patch_Planner_Task')?['error']?['message']}"
+                    },
+                    "runAfter": { "Patch_Planner_Task": ["Failed"] }
+                  }
+                }
+              },
+              "Planner": {
+                "case": "Planner",
+                "actions": {
+                  "Patch_Notion_Page": {
+                    "type": "Http",
+                    "inputs": {
+                      "method": "PATCH",
+                      "uri": "https://api.notion.com/v1/pages/@{variables('resolvedLinkedId')}",
+                      "headers": {
+                        "Authorization": "Bearer @{parameters('notionApiKey')}",
+                        "Notion-Version": "2022-06-28",
+                        "Content-Type": "application/json"
+                      },
+                      "body": {
+                        "properties": {
+                          "Status": {
+                            "status": {
+                              "name": "@{if(equals(triggerBody()?['newStatus'], 'completed'), 'Done', if(equals(triggerBody()?['newStatus'], 'inProgress'), 'In progress', 'Not started'))}"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "Set_Notion_Sync_Success": {
+                    "type": "SetVariable",
+                    "inputs": { "name": "syncSuccess", "value": true },
+                    "runAfter": { "Patch_Notion_Page": ["Succeeded"] }
+                  },
+                  "Set_Notion_Sync_Error": {
+                    "type": "SetVariable",
+                    "inputs": {
+                      "name": "errorMessage",
+                      "value": "Failed to update linked Notion page @{variables('resolvedLinkedId')}: @{body('Patch_Notion_Page')?['message']}"
+                    },
+                    "runAfter": { "Patch_Notion_Page": ["Failed"] }
+                  }
+                }
+              }
+            },
+            "default": { "actions": {} }
+          }
+        },
+        "else": {
+          "actions": {
+            "Set_No_Link_Error": {
+              "type": "SetVariable",
+              "inputs": {
+                "name": "errorMessage",
+                "value": "No linked task found for @{triggerBody()?['sourcePlatform']} task @{triggerBody()?['sourceTaskId']}. Use the 'Link Tasks' feature to connect tasks first."
+              }
+            }
+          }
+        },
+        "runAfter": { "Condition_Linked_Id_Provided": ["Succeeded", "Failed"] }
+      },
+
+      "Response": {
+        "type": "Response",
+        "kind": "PowerVirtualAgents",
+        "inputs": {
+          "statusCode": 200,
+          "body": {
+            "success": "@variables('syncSuccess')",
+            "errorMessage": "@variables('errorMessage')",
+            "sourceTaskId": "@triggerBody()?['sourceTaskId']",
+            "sourcePlatform": "@triggerBody()?['sourcePlatform']",
+            "linkedTaskId": "@variables('resolvedLinkedId')",
+            "targetPlatform": "@{if(equals(triggerBody()?['sourcePlatform'], 'Notion'), 'Planner', 'Notion')}",
+            "newStatus": "@triggerBody()?['newStatus']",
+            "syncedAt": "@utcNow()"
+          }
+        },
+        "runAfter": { "Condition_Has_Linked_Id": ["Succeeded", "Failed"] }
+      }
+    },
+    "outputs": {
+      "success": { "type": "boolean", "description": "Whether the sync succeeded" },
+      "errorMessage": { "type": "string", "description": "Error details if sync failed" },
+      "sourceTaskId": { "type": "string", "description": "ID of the task that triggered the sync" },
+      "sourcePlatform": { "type": "string", "description": "Platform where the update originated" },
+      "linkedTaskId": { "type": "string", "description": "ID of the task that was updated on the target platform" },
+      "targetPlatform": { "type": "string", "description": "Platform where the update was applied" },
+      "newStatus": { "type": "string", "description": "Status that was applied" },
+      "syncedAt": { "type": "string", "description": "Timestamp of the sync" }
+    }
+  }
+}

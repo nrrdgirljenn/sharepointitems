@@ -1,0 +1,171 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "metadata": {
+      "flowId": "link-existing-tasks",
+      "displayName": "Link Existing Tasks",
+      "description": "Links an existing Planner task to an existing Notion page by writing cross-reference IDs into each platform",
+      "author": "Daily Project Checklist Agent",
+      "version": "1.0.0"
+    },
+    "triggers": {
+      "manual": {
+        "type": "Request",
+        "kind": "PowerVirtualAgents",
+        "inputs": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "plannerTaskId": {
+                "type": "string",
+                "description": "ID of the Planner task to link"
+              },
+              "notionPageId": {
+                "type": "string",
+                "description": "ID of the Notion page to link"
+              },
+              "notionDatabaseId": {
+                "type": "string",
+                "description": "Notion database ID (used when writing back to Planner notes)"
+              }
+            },
+            "required": ["plannerTaskId", "notionPageId"]
+          }
+        }
+      }
+    },
+    "actions": {
+      "Initialize_Variables": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            { "name": "linkSuccess", "type": "boolean", "value": false },
+            { "name": "errorMessage", "type": "string", "value": "" }
+          ]
+        },
+        "runAfter": {}
+      },
+
+      "Get_Planner_Task": {
+        "type": "Http",
+        "inputs": {
+          "method": "GET",
+          "uri": "https://graph.microsoft.com/v1.0/planner/tasks/@{triggerBody()?['plannerTaskId']}",
+          "authentication": {
+            "type": "ManagedServiceIdentity",
+            "audience": "https://graph.microsoft.com"
+          }
+        },
+        "runAfter": { "Initialize_Variables": ["Succeeded"] }
+      },
+
+      "Get_Planner_Task_Details": {
+        "type": "Http",
+        "inputs": {
+          "method": "GET",
+          "uri": "https://graph.microsoft.com/v1.0/planner/tasks/@{triggerBody()?['plannerTaskId']}/details",
+          "authentication": {
+            "type": "ManagedServiceIdentity",
+            "audience": "https://graph.microsoft.com"
+          }
+        },
+        "runAfter": { "Get_Planner_Task": ["Succeeded"] }
+      },
+
+      "Update_Planner_Task_Notes": {
+        "type": "Http",
+        "inputs": {
+          "method": "PATCH",
+          "uri": "https://graph.microsoft.com/v1.0/planner/tasks/@{triggerBody()?['plannerTaskId']}/details",
+          "headers": {
+            "If-Match": "@body('Get_Planner_Task_Details')?['@odata.etag']",
+            "Content-Type": "application/json"
+          },
+          "authentication": {
+            "type": "ManagedServiceIdentity",
+            "audience": "https://graph.microsoft.com"
+          },
+          "body": {
+            "description": "@{concat(coalesce(body('Get_Planner_Task_Details')?['description'], ''), if(contains(coalesce(body('Get_Planner_Task_Details')?['description'], ''), 'Notion Page ID'), '', concat('\n\nNotion Page ID: ', triggerBody()?['notionPageId'], if(not(equals(triggerBody()?['notionDatabaseId'], null)), concat('\nNotion Database ID: ', triggerBody()?['notionDatabaseId']), ''))))}"
+          }
+        },
+        "runAfter": { "Get_Planner_Task_Details": ["Succeeded"] }
+      },
+
+      "Update_Notion_Page_With_Planner_Id": {
+        "type": "Http",
+        "inputs": {
+          "method": "PATCH",
+          "uri": "https://api.notion.com/v1/pages/@{triggerBody()?['notionPageId']}",
+          "headers": {
+            "Authorization": "Bearer @{parameters('notionApiKey')}",
+            "Notion-Version": "2022-06-28",
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "properties": {
+              "Planner Task ID": {
+                "rich_text": [
+                  { "text": { "content": "@triggerBody()?['plannerTaskId']" } }
+                ]
+              },
+              "Planner Plan ID": {
+                "rich_text": [
+                  { "text": { "content": "@{coalesce(body('Get_Planner_Task')?['planId'], '')}" } }
+                ]
+              }
+            }
+          }
+        },
+        "runAfter": { "Update_Planner_Task_Notes": ["Succeeded"] }
+      },
+
+      "Set_Link_Success": {
+        "type": "SetVariable",
+        "inputs": { "name": "linkSuccess", "value": true },
+        "runAfter": { "Update_Notion_Page_With_Planner_Id": ["Succeeded"] }
+      },
+
+      "Set_Link_Error": {
+        "type": "SetVariable",
+        "inputs": {
+          "name": "errorMessage",
+          "value": "Failed to link tasks. Planner update: @{if(equals(outputs('Update_Planner_Task_Notes')?['statusCode'], 204), 'OK', 'Failed')}. Notion update: @{if(equals(outputs('Update_Notion_Page_With_Planner_Id')?['statusCode'], 200), 'OK', 'Failed')}."
+        },
+        "runAfter": {
+          "Update_Notion_Page_With_Planner_Id": ["Failed"],
+          "Update_Planner_Task_Notes": ["Failed"]
+        }
+      },
+
+      "Response": {
+        "type": "Response",
+        "kind": "PowerVirtualAgents",
+        "inputs": {
+          "statusCode": 200,
+          "body": {
+            "success": "@variables('linkSuccess')",
+            "errorMessage": "@variables('errorMessage')",
+            "plannerTaskId": "@triggerBody()?['plannerTaskId']",
+            "notionPageId": "@triggerBody()?['notionPageId']",
+            "plannerTaskTitle": "@body('Get_Planner_Task')?['title']",
+            "linkedAt": "@utcNow()"
+          }
+        },
+        "runAfter": {
+          "Set_Link_Success": ["Succeeded"],
+          "Set_Link_Error": ["Succeeded"]
+        }
+      }
+    },
+    "outputs": {
+      "success": { "type": "boolean", "description": "Whether the link was created successfully" },
+      "errorMessage": { "type": "string", "description": "Error message if linking failed" },
+      "plannerTaskId": { "type": "string", "description": "Planner task ID that was linked" },
+      "notionPageId": { "type": "string", "description": "Notion page ID that was linked" },
+      "plannerTaskTitle": { "type": "string", "description": "Title of the Planner task" },
+      "linkedAt": { "type": "string", "description": "Timestamp of when the link was created" }
+    }
+  }
+}

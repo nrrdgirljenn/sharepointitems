@@ -2,8 +2,8 @@
   "$schema": "https://schema.copilotstudio.microsoft.com/agent/v1.0/manifest.schema.json",
   "name": "DailyProjectChecklistAgent",
   "displayName": "Daily Project Checklist Agent",
-  "description": "An intelligent agent that helps you build and manage your daily project checklist by aggregating tasks from Notion and Microsoft Planner",
-  "version": "1.0.0",
+  "description": "An intelligent agent that tracks projects and tasks across Microsoft Planner and Notion — build daily checklists, create linked tasks in both platforms, link existing tasks together, sync status updates cross-platform, and view a unified project overview.",
+  "version": "2.0.0",
   "author": "nrrdgirljenn",
   "icon": "checklist-icon.png",
   "primaryLanguage": "en-US",
@@ -37,12 +37,19 @@
     "topics/get-planner-tasks.topic.yaml",
     "topics/build-daily-checklist.topic.yaml",
     "topics/manage-checklist.topic.yaml",
-    "topics/sync-status.topic.yaml"
+    "topics/sync-status.topic.yaml",
+    "topics/track-projects.topic.yaml",
+    "topics/create-task.topic.yaml",
+    "topics/link-tasks.topic.yaml"
   ],
   "flows": [
     "flows/fetch-notion-tasks.flow.json",
     "flows/fetch-planner-tasks.flow.json",
-    "flows/update-task-status.flow.json"
+    "flows/update-task-status.flow.json",
+    "flows/create-linked-task.flow.json",
+    "flows/link-existing-tasks.flow.json",
+    "flows/get-project-overview.flow.json",
+    "flows/sync-task-cross-platform.flow.json"
   ],
   "knowledgeSources": [],
   "triggers": {

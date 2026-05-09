@@ -1,0 +1,303 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "metadata": {
+      "flowId": "create-linked-task",
+      "displayName": "Create Linked Task",
+      "description": "Creates a task simultaneously in both Microsoft Planner and Notion, storing cross-reference IDs in each platform so they stay linked",
+      "author": "Daily Project Checklist Agent",
+      "version": "1.0.0"
+    },
+    "triggers": {
+      "manual": {
+        "type": "Request",
+        "kind": "PowerVirtualAgents",
+        "inputs": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string",
+                "description": "Task title"
+              },
+              "description": {
+                "type": "string",
+                "description": "Task description or notes"
+              },
+              "priority": {
+                "type": "string",
+                "description": "Task priority: high, medium, low",
+                "enum": ["high", "medium", "low"],
+                "default": "medium"
+              },
+              "dueDate": {
+                "type": "string",
+                "description": "Due date in ISO 8601 format (YYYY-MM-DD)"
+              },
+              "plannerPlanId": {
+                "type": "string",
+                "description": "Target Planner plan ID"
+              },
+              "plannerBucketId": {
+                "type": "string",
+                "description": "Target Planner bucket ID (optional)"
+              },
+              "notionDatabaseId": {
+                "type": "string",
+                "description": "Target Notion database ID"
+              },
+              "assignedToUserId": {
+                "type": "string",
+                "description": "Microsoft 365 user ID to assign the Planner task to (optional)"
+              },
+              "createIn": {
+                "type": "string",
+                "description": "Which platforms to create the task in: both, plannerOnly, notionOnly",
+                "enum": ["both", "plannerOnly", "notionOnly"],
+                "default": "both"
+              }
+            },
+            "required": ["title", "plannerPlanId", "notionDatabaseId"]
+          }
+        }
+      }
+    },
+    "actions": {
+      "Initialize_Variables": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            { "name": "plannerTaskId", "type": "string", "value": "" },
+            { "name": "notionPageId", "type": "string", "value": "" },
+            { "name": "plannerError", "type": "string", "value": "" },
+            { "name": "notionError", "type": "string", "value": "" },
+            {
+              "name": "priorityMap",
+              "type": "object",
+              "value": { "high": 1, "medium": 5, "low": 9 }
+            }
+          ]
+        },
+        "runAfter": {}
+      },
+
+      "Condition_Create_In_Planner": {
+        "type": "If",
+        "expression": {
+          "or": [
+            { "equals": ["@triggerBody()?['createIn']", "both"] },
+            { "equals": ["@triggerBody()?['createIn']", "plannerOnly"] },
+            { "equals": ["@triggerBody()?['createIn']", null] }
+          ]
+        },
+        "actions": {
+          "Build_Planner_Task_Body": {
+            "type": "Compose",
+            "inputs": {
+              "title": "@triggerBody()?['title']",
+              "planId": "@triggerBody()?['plannerPlanId']",
+              "bucketId": "@triggerBody()?['plannerBucketId']",
+              "priority": "@{if(equals(triggerBody()?['priority'], 'high'), 1, if(equals(triggerBody()?['priority'], 'low'), 9, 5))}",
+              "dueDateTime": "@{if(not(equals(triggerBody()?['dueDate'], null)), concat(triggerBody()?['dueDate'], 'T00:00:00Z'), null)}",
+              "assignments": "@{if(not(equals(triggerBody()?['assignedToUserId'], null)), json(concat('{\"', triggerBody()?['assignedToUserId'], '\": {\"@odata.type\": \"#microsoft.graph.plannerAssignment\", \"orderHint\": \" !\"}}' )), json('{}'))}",
+              "details": {
+                "description": "@{coalesce(triggerBody()?['description'], '')}"
+              }
+            }
+          },
+          "Create_Planner_Task": {
+            "type": "Http",
+            "inputs": {
+              "method": "POST",
+              "uri": "https://graph.microsoft.com/v1.0/planner/tasks",
+              "headers": { "Content-Type": "application/json" },
+              "authentication": {
+                "type": "ManagedServiceIdentity",
+                "audience": "https://graph.microsoft.com"
+              },
+              "body": "@outputs('Build_Planner_Task_Body')"
+            },
+            "runAfter": { "Build_Planner_Task_Body": ["Succeeded"] }
+          },
+          "Set_Planner_Task_Id": {
+            "type": "SetVariable",
+            "inputs": {
+              "name": "plannerTaskId",
+              "value": "@body('Create_Planner_Task')?['id']"
+            },
+            "runAfter": { "Create_Planner_Task": ["Succeeded"] }
+          },
+          "Set_Planner_Error": {
+            "type": "SetVariable",
+            "inputs": {
+              "name": "plannerError",
+              "value": "Failed to create Planner task: @{body('Create_Planner_Task')?['error']?['message']}"
+            },
+            "runAfter": { "Create_Planner_Task": ["Failed"] }
+          }
+        },
+        "runAfter": { "Initialize_Variables": ["Succeeded"] }
+      },
+
+      "Condition_Create_In_Notion": {
+        "type": "If",
+        "expression": {
+          "or": [
+            { "equals": ["@triggerBody()?['createIn']", "both"] },
+            { "equals": ["@triggerBody()?['createIn']", "notionOnly"] },
+            { "equals": ["@triggerBody()?['createIn']", null] }
+          ]
+        },
+        "actions": {
+          "Build_Notion_Page_Body": {
+            "type": "Compose",
+            "inputs": {
+              "parent": { "database_id": "@triggerBody()?['notionDatabaseId']" },
+              "properties": {
+                "Name": {
+                  "title": [{ "text": { "content": "@triggerBody()?['title']" } }]
+                },
+                "Status": {
+                  "status": { "name": "Not started" }
+                },
+                "Priority": {
+                  "select": {
+                    "name": "@{if(equals(triggerBody()?['priority'], 'high'), 'High', if(equals(triggerBody()?['priority'], 'low'), 'Low', 'Medium'))}"
+                  }
+                },
+                "Due Date": {
+                  "date": {
+                    "start": "@{coalesce(triggerBody()?['dueDate'], null)}"
+                  }
+                },
+                "Planner Task ID": {
+                  "rich_text": [
+                    { "text": { "content": "@{coalesce(variables('plannerTaskId'), '')}" } }
+                  ]
+                },
+                "Planner Plan ID": {
+                  "rich_text": [
+                    { "text": { "content": "@{coalesce(triggerBody()?['plannerPlanId'], '')}" } }
+                  ]
+                }
+              },
+              "children": [
+                {
+                  "object": "block",
+                  "type": "paragraph",
+                  "paragraph": {
+                    "rich_text": [
+                      { "text": { "content": "@{coalesce(triggerBody()?['description'], '')}" } }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          "Create_Notion_Page": {
+            "type": "Http",
+            "inputs": {
+              "method": "POST",
+              "uri": "https://api.notion.com/v1/pages",
+              "headers": {
+                "Authorization": "Bearer @{parameters('notionApiKey')}",
+                "Notion-Version": "2022-06-28",
+                "Content-Type": "application/json"
+              },
+              "body": "@outputs('Build_Notion_Page_Body')"
+            },
+            "runAfter": { "Build_Notion_Page_Body": ["Succeeded"] }
+          },
+          "Set_Notion_Page_Id": {
+            "type": "SetVariable",
+            "inputs": {
+              "name": "notionPageId",
+              "value": "@body('Create_Notion_Page')?['id']"
+            },
+            "runAfter": { "Create_Notion_Page": ["Succeeded"] }
+          },
+          "Set_Notion_Error": {
+            "type": "SetVariable",
+            "inputs": {
+              "name": "notionError",
+              "value": "Failed to create Notion task: @{body('Create_Notion_Page')?['message']}"
+            },
+            "runAfter": { "Create_Notion_Page": ["Failed"] }
+          }
+        },
+        "runAfter": { "Condition_Create_In_Planner": ["Succeeded", "Failed"] }
+      },
+
+      "Condition_Write_Back_Notion_Id_To_Planner": {
+        "type": "If",
+        "expression": {
+          "and": [
+            { "not": { "equals": ["@variables('plannerTaskId')", ""] } },
+            { "not": { "equals": ["@variables('notionPageId')", ""] } }
+          ]
+        },
+        "actions": {
+          "Get_Planner_Task_Details_ETag": {
+            "type": "Http",
+            "inputs": {
+              "method": "GET",
+              "uri": "https://graph.microsoft.com/v1.0/planner/tasks/@{variables('plannerTaskId')}/details",
+              "authentication": {
+                "type": "ManagedServiceIdentity",
+                "audience": "https://graph.microsoft.com"
+              }
+            }
+          },
+          "Update_Planner_Task_Notes_With_Notion_Link": {
+            "type": "Http",
+            "inputs": {
+              "method": "PATCH",
+              "uri": "https://graph.microsoft.com/v1.0/planner/tasks/@{variables('plannerTaskId')}/details",
+              "headers": {
+                "If-Match": "@body('Get_Planner_Task_Details_ETag')?['@odata.etag']",
+                "Content-Type": "application/json"
+              },
+              "authentication": {
+                "type": "ManagedServiceIdentity",
+                "audience": "https://graph.microsoft.com"
+              },
+              "body": {
+                "description": "@{concat(coalesce(triggerBody()?['description'], ''), '\n\nNotion Page ID: ', variables('notionPageId'), '\nNotion Database ID: ', triggerBody()?['notionDatabaseId'])}"
+              }
+            },
+            "runAfter": { "Get_Planner_Task_Details_ETag": ["Succeeded"] }
+          }
+        },
+        "runAfter": { "Condition_Create_In_Notion": ["Succeeded", "Failed"] }
+      },
+
+      "Response": {
+        "type": "Response",
+        "kind": "PowerVirtualAgents",
+        "inputs": {
+          "statusCode": 200,
+          "body": {
+            "plannerTaskId": "@variables('plannerTaskId')",
+            "notionPageId": "@variables('notionPageId')",
+            "plannerError": "@variables('plannerError')",
+            "notionError": "@variables('notionError')",
+            "success": "@and(equals(variables('plannerError'), ''), equals(variables('notionError'), ''))",
+            "createdAt": "@utcNow()"
+          }
+        },
+        "runAfter": {
+          "Condition_Write_Back_Notion_Id_To_Planner": ["Succeeded", "Failed"]
+        }
+      }
+    },
+    "outputs": {
+      "plannerTaskId": { "type": "string", "description": "ID of the created Planner task" },
+      "notionPageId": { "type": "string", "description": "ID of the created Notion page" },
+      "plannerError": { "type": "string", "description": "Planner creation error, if any" },
+      "notionError": { "type": "string", "description": "Notion creation error, if any" },
+      "success": { "type": "boolean", "description": "True if both tasks were created successfully" },
+      "createdAt": { "type": "string", "description": "Creation timestamp" }
+    }
+  }
+}

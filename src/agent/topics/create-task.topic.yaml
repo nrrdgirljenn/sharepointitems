@@ -1,0 +1,294 @@
+kind: AdaptiveDialog
+modelDescription: This topic guides the user through creating a new task in one or both platforms (Planner and/or Notion), with options to create linked tasks simultaneously.
+beginDialog:
+  kind: OnRecognizedIntent
+  id: main
+  intent:
+    triggerQueries:
+      - Create a task
+      - Add a new task
+      - New task
+      - Create task in both platforms
+      - Add task to Planner and Notion
+      - Create linked task
+      - Add task
+
+  actions:
+    - kind: SendMessage
+      id: introMessage
+      message: "✏️ **Create Task** — Let's add a new task."
+
+    # Collect task details
+    - kind: Question
+      id: askTitle
+      prompt: What is the task title?
+      variable: init:Topic.TaskTitle
+      entity:
+        kind: EmbeddedEntity
+        definition:
+          kind: StringEntity
+
+    - kind: Question
+      id: askDescription
+      prompt: Add a description or notes (or press Enter to skip):
+      variable: init:Topic.TaskDescription
+      entity:
+        kind: EmbeddedEntity
+        definition:
+          kind: StringEntity
+
+    - kind: Question
+      id: askPriority
+      prompt: What priority?
+      variable: init:Topic.TaskPriority
+      entity:
+        kind: EmbeddedEntity
+        definition:
+          kind: ClosedListEntity
+          items:
+            - id: high
+              displayName: High
+            - id: medium
+              displayName: Medium (default)
+            - id: low
+              displayName: Low
+
+    - kind: Question
+      id: askDueDate
+      prompt: Due date? (Enter a date like 2025-08-15, or "none" to skip)
+      variable: init:Topic.DueDateInput
+      entity:
+        kind: EmbeddedEntity
+        definition:
+          kind: StringEntity
+
+    - kind: SetVariable
+      id: normalizeDueDate
+      variable: Topic.TaskDueDate
+      value: =If(Lower(Topic.DueDateInput) = "none" Or IsBlank(Topic.DueDateInput), Blank(), Topic.DueDateInput)
+
+    # Where to create the task
+    - kind: Question
+      id: askCreateIn
+      prompt: Where would you like to create this task?
+      variable: init:Topic.CreateTarget
+      entity:
+        kind: EmbeddedEntity
+        definition:
+          kind: ClosedListEntity
+          items:
+            - id: both
+              displayName: Both Planner AND Notion (linked)
+            - id: plannerOnly
+              displayName: Planner only
+            - id: notionOnly
+              displayName: Notion only
+
+    # Collect platform IDs if needed
+    - kind: ConditionGroup
+      id: collectPlannerDetails
+      conditions:
+        - id: needsPlanner
+          condition: =Topic.CreateTarget = 'both' Or Topic.CreateTarget = 'plannerOnly'
+          actions:
+            - kind: ConditionGroup
+              id: useSavedPlanId
+              conditions:
+                - id: hasSavedPlanId
+                  condition: =!IsBlank(System.User.PlannerPlanId)
+                  actions:
+                    - kind: SetVariable
+                      id: useExistingPlanId
+                      variable: Topic.PlannerPlanId
+                      value: =System.User.PlannerPlanId
+
+                - id: noSavedPlanId
+                  condition: =IsBlank(System.User.PlannerPlanId)
+                  actions:
+                    - kind: Question
+                      id: askPlanId
+                      prompt: Enter the Planner Plan ID:
+                      variable: init:Topic.PlannerPlanId
+                      entity:
+                        kind: EmbeddedEntity
+                        definition:
+                          kind: StringEntity
+
+            - kind: Question
+              id: askBucketId
+              prompt: Enter a Bucket ID to assign this task to (or press Enter to use the default bucket):
+              variable: init:Topic.PlannerBucketId
+              entity:
+                kind: EmbeddedEntity
+                definition:
+                  kind: StringEntity
+
+    - kind: ConditionGroup
+      id: collectNotionDetails
+      conditions:
+        - id: needsNotion
+          condition: =Topic.CreateTarget = 'both' Or Topic.CreateTarget = 'notionOnly'
+          actions:
+            - kind: ConditionGroup
+              id: useSavedNotionDb
+              conditions:
+                - id: hasSavedNotionDb
+                  condition: =!IsBlank(System.User.NotionDatabaseId)
+                  actions:
+                    - kind: SetVariable
+                      id: useExistingNotionDb
+                      variable: Topic.NotionDatabaseId
+                      value: =System.User.NotionDatabaseId
+
+                - id: noSavedNotionDb
+                  condition: =IsBlank(System.User.NotionDatabaseId)
+                  actions:
+                    - kind: Question
+                      id: askNotionDbId
+                      prompt: Enter the Notion Database ID:
+                      variable: init:Topic.NotionDatabaseId
+                      entity:
+                        kind: EmbeddedEntity
+                        definition:
+                          kind: StringEntity
+
+    # Confirm before creating
+    - kind: SendMessage
+      id: confirmSummary
+      message: |
+        **Task Summary:**
+        Title: **{Topic.TaskTitle}**
+        Priority: {Topic.TaskPriority}
+        Due date: {If(IsBlank(Topic.TaskDueDate), "None", Topic.TaskDueDate)}
+        Create in: {Switch(Topic.CreateTarget, "both", "Planner + Notion (linked)", "plannerOnly", "Planner only", "notionOnly", "Notion only", Topic.CreateTarget)}
+        {If(!IsBlank(Topic.TaskDescription), "Notes: " & Topic.TaskDescription, "")}
+
+    - kind: Question
+      id: confirmCreate
+      prompt: Create this task?
+      variable: init:Topic.ConfirmCreate
+      entity:
+        kind: EmbeddedEntity
+        definition:
+          kind: BooleanEntity
+
+    - kind: ConditionGroup
+      id: handleConfirm
+      conditions:
+        - id: confirmed
+          condition: =Topic.ConfirmCreate = true
+          actions:
+            - kind: SendMessage
+              id: creatingMsg
+              message: "⏳ Creating task..."
+
+            - kind: InvokeFlowAction
+              id: createLinkedTask
+              flowId: create-linked-task
+              input:
+                binding:
+                  title: =Topic.TaskTitle
+                  description: =Topic.TaskDescription
+                  priority: =Topic.TaskPriority
+                  dueDate: =Topic.TaskDueDate
+                  plannerPlanId: =Topic.PlannerPlanId
+                  plannerBucketId: =Topic.PlannerBucketId
+                  notionDatabaseId: =Topic.NotionDatabaseId
+                  createIn: =Topic.CreateTarget
+              output:
+                binding:
+                  plannerTaskId: Topic.CreatedPlannerTaskId
+                  notionPageId: Topic.CreatedNotionPageId
+                  plannerError: Topic.PlannerCreateError
+                  notionError: Topic.NotionCreateError
+                  success: Topic.CreateSuccess
+
+            - kind: ConditionGroup
+              id: showCreateResult
+              conditions:
+                - id: createSuccess
+                  condition: =Topic.CreateSuccess = true
+                  actions:
+                    - kind: SendMessage
+                      id: successMsg
+                      message: |
+                        ✅ **Task Created Successfully!**
+
+                        **"{Topic.TaskTitle}"** has been added.
+                        {If(Topic.CreateTarget = "both" Or Topic.CreateTarget = "plannerOnly", "📋 Planner Task ID: " & Topic.CreatedPlannerTaskId, "")}
+                        {If(Topic.CreateTarget = "both" Or Topic.CreateTarget = "notionOnly", "📝 Notion Page ID: " & Topic.CreatedNotionPageId, "")}
+                        {If(Topic.CreateTarget = "both", "🔗 Tasks are linked — changes can be synced across platforms!", "")}
+
+                - id: partialSuccess
+                  condition: =Topic.CreateSuccess = false And (!IsBlank(Topic.CreatedPlannerTaskId) Or !IsBlank(Topic.CreatedNotionPageId))
+                  actions:
+                    - kind: SendMessage
+                      id: partialMsg
+                      message: |
+                        ⚠️ **Partially created:**
+                        {If(!IsBlank(Topic.CreatedPlannerTaskId), "✅ Planner: Created", "❌ Planner: " & Topic.PlannerCreateError)}
+                        {If(!IsBlank(Topic.CreatedNotionPageId), "✅ Notion: Created", "❌ Notion: " & Topic.NotionCreateError)}
+
+                - id: createFailed
+                  condition: =Topic.CreateSuccess = false And IsBlank(Topic.CreatedPlannerTaskId) And IsBlank(Topic.CreatedNotionPageId)
+                  actions:
+                    - kind: SendMessage
+                      id: failedMsg
+                      message: |
+                        ❌ **Task creation failed.**
+                        {If(!IsBlank(Topic.PlannerCreateError), "Planner: " & Topic.PlannerCreateError, "")}
+                        {If(!IsBlank(Topic.NotionCreateError), "Notion: " & Topic.NotionCreateError, "")}
+
+                        Please check your connection settings and try again.
+
+            # Ask what to do next
+            - kind: Question
+              id: askNextAction
+              prompt: What would you like to do next?
+              variable: init:Topic.NextAction
+              entity:
+                kind: EmbeddedEntity
+                definition:
+                  kind: ClosedListEntity
+                  items:
+                    - id: createAnother
+                      displayName: Create another task
+                    - id: viewProject
+                      displayName: View project overview
+                    - id: done
+                      displayName: Done
+
+            - kind: ConditionGroup
+              id: handleNext
+              conditions:
+                - id: createAnother
+                  condition: =Topic.NextAction = 'createAnother'
+                  actions:
+                    - kind: GotoAction
+                      id: restartCreate
+                      actionId: introMessage
+
+                - id: viewProject
+                  condition: =Topic.NextAction = 'viewProject'
+                  actions:
+                    - kind: BeginDialog
+                      id: gotoProjectView
+                      dialog: track-projects
+
+        - id: cancelled
+          condition: =Topic.ConfirmCreate = false
+          actions:
+            - kind: SendMessage
+              id: cancelledMsg
+              message: "Task creation cancelled."
+
+outputParameters:
+  - name: createdPlannerTaskId
+    type: Text
+    description: ID of the created Planner task
+  - name: createdNotionPageId
+    type: Text
+    description: ID of the created Notion page
+  - name: createSuccess
+    type: Boolean
+    description: Whether the task was created successfully

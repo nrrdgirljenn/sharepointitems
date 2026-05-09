@@ -1,0 +1,250 @@
+kind: AdaptiveDialog
+modelDescription: This topic helps users link an existing Planner task to an existing Notion page, so they can be tracked and synced together as a pair.
+beginDialog:
+  kind: OnRecognizedIntent
+  id: main
+  intent:
+    triggerQueries:
+      - Link tasks
+      - Connect tasks across platforms
+      - Link Planner task to Notion
+      - Link Notion to Planner
+      - Associate tasks
+      - Map tasks between platforms
+      - Connect Planner and Notion task
+      - Link existing tasks
+
+  actions:
+    - kind: SendMessage
+      id: introMessage
+      message: |
+        🔗 **Link Tasks** — Connect an existing Planner task with an existing Notion page so they stay in sync.
+
+        You'll need:
+        • The **Planner Task ID** (found in the task URL or via "Show project overview")
+        • The **Notion Page ID** (the 32-character string from the page URL)
+
+    # Collect Planner task ID
+    - kind: Question
+      id: askPlannerTaskId
+      prompt: Enter the Planner Task ID:
+      variable: init:Topic.PlannerTaskId
+      entity:
+        kind: EmbeddedEntity
+        definition:
+          kind: StringEntity
+
+    # Collect Notion page ID
+    - kind: Question
+      id: askNotionPageId
+      prompt: Enter the Notion Page ID (32-character string from the page URL):
+      variable: init:Topic.NotionPageId
+      entity:
+        kind: EmbeddedEntity
+        definition:
+          kind: StringEntity
+
+    - kind: Question
+      id: askNotionDatabaseId
+      prompt: Enter the Notion Database ID that contains this page (optional — helps with project overview):
+      variable: init:Topic.NotionDatabaseId
+      entity:
+        kind: EmbeddedEntity
+        definition:
+          kind: StringEntity
+
+    # Confirm before linking
+    - kind: SendMessage
+      id: confirmSummary
+      message: |
+        **Link Summary:**
+        📋 Planner Task ID: `{Topic.PlannerTaskId}`
+        📝 Notion Page ID: `{Topic.NotionPageId}`
+        {If(!IsBlank(Topic.NotionDatabaseId), "🗄️ Notion Database ID: " & Topic.NotionDatabaseId, "")}
+
+        This will:
+        • Write the Notion Page ID into the Planner task's notes
+        • Write the Planner Task ID into the Notion page's "Planner Task ID" property
+
+    - kind: Question
+      id: confirmLink
+      prompt: Proceed with linking?
+      variable: init:Topic.ConfirmLink
+      entity:
+        kind: EmbeddedEntity
+        definition:
+          kind: BooleanEntity
+
+    - kind: ConditionGroup
+      id: handleConfirm
+      conditions:
+        - id: confirmed
+          condition: =Topic.ConfirmLink = true
+          actions:
+            - kind: SendMessage
+              id: linkingMsg
+              message: "⏳ Linking tasks..."
+
+            - kind: InvokeFlowAction
+              id: linkExistingTasks
+              flowId: link-existing-tasks
+              input:
+                binding:
+                  plannerTaskId: =Topic.PlannerTaskId
+                  notionPageId: =Topic.NotionPageId
+                  notionDatabaseId: =Topic.NotionDatabaseId
+              output:
+                binding:
+                  success: Topic.LinkSuccess
+                  errorMessage: Topic.LinkError
+                  plannerTaskTitle: Topic.PlannerTaskTitle
+
+            - kind: ConditionGroup
+              id: showLinkResult
+              conditions:
+                - id: linkSuccess
+                  condition: =Topic.LinkSuccess = true
+                  actions:
+                    - kind: SendMessage
+                      id: successMsg
+                      message: |
+                        ✅ **Tasks Linked Successfully!**
+
+                        **"{Topic.PlannerTaskTitle}"** is now linked between Planner and Notion.
+
+                        You can now:
+                        • View both tasks together in the project overview
+                        • Sync status updates across platforms with "Sync task cross-platform"
+                        • See this link reflected in the daily checklist
+
+                - id: linkFailed
+                  condition: =Topic.LinkSuccess = false
+                  actions:
+                    - kind: SendMessage
+                      id: failedMsg
+                      message: |
+                        ❌ **Linking failed.**
+                        {Topic.LinkError}
+
+                        **Common fixes:**
+                        • Double-check both IDs are correct
+                        • Ensure the Notion page has a "Planner Task ID" property (Text type)
+                        • Verify your Planner permissions via "Check connection status"
+
+            # Ask what to do next
+            - kind: Question
+              id: askNextAction
+              prompt: What would you like to do?
+              variable: init:Topic.NextAction
+              entity:
+                kind: EmbeddedEntity
+                definition:
+                  kind: ClosedListEntity
+                  items:
+                    - id: linkAnother
+                      displayName: Link another pair of tasks
+                    - id: viewProject
+                      displayName: View project overview
+                    - id: syncNow
+                      displayName: Sync the linked task status now
+                    - id: done
+                      displayName: Done
+
+            - kind: ConditionGroup
+              id: handleNextAction
+              conditions:
+                - id: linkAnother
+                  condition: =Topic.NextAction = 'linkAnother'
+                  actions:
+                    - kind: GotoAction
+                      id: restartLink
+                      actionId: introMessage
+
+                - id: viewProject
+                  condition: =Topic.NextAction = 'viewProject'
+                  actions:
+                    - kind: BeginDialog
+                      id: gotoProject
+                      dialog: track-projects
+
+                - id: syncNow
+                  condition: =Topic.NextAction = 'syncNow' And Topic.LinkSuccess = true
+                  actions:
+                    - kind: Question
+                      id: askSyncStatus
+                      prompt: What status should be synced to the linked task?
+                      variable: init:Topic.SyncStatus
+                      entity:
+                        kind: EmbeddedEntity
+                        definition:
+                          kind: ClosedListEntity
+                          items:
+                            - id: notStarted
+                              displayName: Not Started
+                            - id: inProgress
+                              displayName: In Progress
+                            - id: completed
+                              displayName: Completed
+
+                    - kind: Question
+                      id: askSyncDirection
+                      prompt: Sync from which platform?
+                      variable: init:Topic.SyncSource
+                      entity:
+                        kind: EmbeddedEntity
+                        definition:
+                          kind: ClosedListEntity
+                          items:
+                            - id: Planner
+                              displayName: Planner (update Notion)
+                            - id: Notion
+                              displayName: Notion (update Planner)
+
+                    - kind: InvokeFlowAction
+                      id: syncAfterLink
+                      flowId: sync-task-cross-platform
+                      input:
+                        binding:
+                          sourceTaskId: =If(Topic.SyncSource = "Planner", Topic.PlannerTaskId, Topic.NotionPageId)
+                          sourcePlatform: =Topic.SyncSource
+                          newStatus: =Topic.SyncStatus
+                          linkedTaskId: =If(Topic.SyncSource = "Planner", Topic.NotionPageId, Topic.PlannerTaskId)
+                      output:
+                        binding:
+                          success: Topic.SyncSuccess
+                          errorMessage: Topic.SyncError
+                          targetPlatform: Topic.SyncTargetPlatform
+
+                    - kind: ConditionGroup
+                      id: showSyncResult
+                      conditions:
+                        - id: syncOk
+                          condition: =Topic.SyncSuccess = true
+                          actions:
+                            - kind: SendMessage
+                              id: syncSuccessMsg
+                              message: "✅ Status synced to **{Topic.SyncTargetPlatform}** successfully!"
+                        - id: syncFailed
+                          condition: =Topic.SyncSuccess = false
+                          actions:
+                            - kind: SendMessage
+                              id: syncErrorMsg
+                              message: "⚠️ Sync failed: {Topic.SyncError}"
+
+        - id: cancelled
+          condition: =Topic.ConfirmLink = false
+          actions:
+            - kind: SendMessage
+              id: cancelledMsg
+              message: "Link cancelled. No changes were made."
+
+outputParameters:
+  - name: linkSuccess
+    type: Boolean
+    description: Whether the tasks were linked successfully
+  - name: plannerTaskId
+    type: Text
+    description: Planner task ID that was linked
+  - name: notionPageId
+    type: Text
+    description: Notion page ID that was linked

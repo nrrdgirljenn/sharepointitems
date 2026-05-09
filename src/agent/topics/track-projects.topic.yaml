@@ -1,0 +1,408 @@
+kind: AdaptiveDialog
+modelDescription: This topic provides a unified project overview showing tasks from both Planner and Notion, highlighting which tasks are linked across platforms and which exist only in one platform.
+beginDialog:
+  kind: OnRecognizedIntent
+  id: main
+  intent:
+    triggerQueries:
+      - Track my projects
+      - Project overview
+      - Show project status
+      - View project tasks
+      - Project tracker
+      - How is my project going
+      - Project health
+      - Cross-platform tasks
+      - Show linked tasks
+      - What tasks are linked
+
+  actions:
+    - kind: SendMessage
+      id: introMessage
+      message: "📊 **Project Tracker** - Loading your project overview..."
+
+    # Ask which project to view
+    - kind: ConditionGroup
+      id: checkSavedProjects
+      conditions:
+        - id: hasProjects
+          condition: =CountRows(Global.SavedProjects) > 0
+          actions:
+            - kind: SendMessage
+              id: savedProjectsHeader
+              message: "Your configured projects:"
+
+            - kind: ForEachAction
+              id: listProjects
+              itemsSource: =Global.SavedProjects
+              itemVariable: Topic.Project
+              index: Topic.ProjectIndex
+              actions:
+                - kind: SendMessage
+                  id: listProject
+                  message: "{Topic.ProjectIndex + 1}. {Topic.Project.name}"
+
+            - kind: Question
+              id: askProjectSelection
+              prompt: Which project would you like to view? Enter a number or name, or type "new" to enter a custom project.
+              variable: init:Topic.ProjectInput
+              entity:
+                kind: EmbeddedEntity
+                definition:
+                  kind: StringEntity
+
+            - kind: ConditionGroup
+              id: resolveProject
+              conditions:
+                - id: customProject
+                  condition: =Lower(Topic.ProjectInput) = "new"
+                  actions:
+                    - kind: Question
+                      id: askPlanId
+                      prompt: Enter the Planner Plan ID for this project:
+                      variable: init:Topic.SelectedPlanId
+                      entity:
+                        kind: EmbeddedEntity
+                        definition:
+                          kind: StringEntity
+
+                    - kind: Question
+                      id: askNotionDbId
+                      prompt: Enter the Notion Database ID for this project:
+                      variable: init:Topic.SelectedNotionDbId
+                      entity:
+                        kind: EmbeddedEntity
+                        definition:
+                          kind: StringEntity
+
+                    - kind: Question
+                      id: askProjectName
+                      prompt: Give this project a name:
+                      variable: init:Topic.SelectedProjectName
+                      entity:
+                        kind: EmbeddedEntity
+                        definition:
+                          kind: StringEntity
+
+                - id: savedProject
+                  condition: =!IsBlank(Topic.ProjectInput)
+                  actions:
+                    - kind: SetVariable
+                      id: resolveFromSaved
+                      variable: Topic.ResolvedProject
+                      value: =LookUp(Global.SavedProjects, name = Topic.ProjectInput Or Text(Topic.ProjectIndex + 1) = Topic.ProjectInput)
+
+                    - kind: SetVariable
+                      id: setPlanId
+                      variable: Topic.SelectedPlanId
+                      value: =Topic.ResolvedProject.plannerPlanId
+
+                    - kind: SetVariable
+                      id: setNotionDbId
+                      variable: Topic.SelectedNotionDbId
+                      value: =Topic.ResolvedProject.notionDatabaseId
+
+                    - kind: SetVariable
+                      id: setProjectName
+                      variable: Topic.SelectedProjectName
+                      value: =Topic.ResolvedProject.name
+
+        - id: noProjects
+          condition: =CountRows(Global.SavedProjects) = 0
+          actions:
+            - kind: SendMessage
+              id: noProjectsMsg
+              message: |
+                No saved projects yet. Let's set one up.
+
+            - kind: Question
+              id: askFirstPlanId
+              prompt: Enter your Planner Plan ID:
+              variable: init:Topic.SelectedPlanId
+              entity:
+                kind: EmbeddedEntity
+                definition:
+                  kind: StringEntity
+
+            - kind: Question
+              id: askFirstNotionDbId
+              prompt: Enter your Notion Database ID:
+              variable: init:Topic.SelectedNotionDbId
+              entity:
+                kind: EmbeddedEntity
+                definition:
+                  kind: StringEntity
+
+            - kind: Question
+              id: askFirstProjectName
+              prompt: What should we call this project?
+              variable: init:Topic.SelectedProjectName
+              entity:
+                kind: EmbeddedEntity
+                definition:
+                  kind: StringEntity
+
+    # Fetch project overview from both platforms
+    - kind: SendMessage
+      id: fetchingMsg
+      message: "🔄 Fetching tasks from Planner and Notion for **{Topic.SelectedProjectName}**..."
+
+    - kind: InvokeFlowAction
+      id: getProjectOverview
+      flowId: get-project-overview
+      input:
+        binding:
+          plannerPlanId: =Topic.SelectedPlanId
+          notionDatabaseId: =Topic.SelectedNotionDbId
+          projectName: =Topic.SelectedProjectName
+          includeCompleted: false
+      output:
+        binding:
+          projectName: Topic.ProjectName
+          linkedTasks: Topic.LinkedTasks
+          plannerOnlyTasks: Topic.PlannerOnlyTasks
+          notionOnlyTasks: Topic.NotionOnlyTasks
+          linkedCount: Topic.LinkedCount
+          plannerOnlyCount: Topic.PlannerOnlyCount
+          notionOnlyCount: Topic.NotionOnlyCount
+          totalTasks: Topic.TotalTasks
+          errorMessage: Topic.OverviewError
+          lastSync: Topic.LastSync
+
+    # Handle errors
+    - kind: ConditionGroup
+      id: checkError
+      conditions:
+        - id: hasError
+          condition: =!IsBlank(Topic.OverviewError)
+          actions:
+            - kind: SendMessage
+              id: errorMsg
+              message: "⚠️ {Topic.OverviewError}"
+
+    # Display project overview
+    - kind: ConditionGroup
+      id: checkHasTasks
+      conditions:
+        - id: hasTasks
+          condition: =Topic.TotalTasks > 0
+          actions:
+            - kind: SendMessage
+              id: overviewHeader
+              message: |
+                ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                📊 **{Topic.ProjectName}** — Project Overview
+                ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                🔗 Linked (both platforms): **{Topic.LinkedCount}**
+                📋 Planner only: **{Topic.PlannerOnlyCount}**
+                📝 Notion only: **{Topic.NotionOnlyCount}**
+                📌 Total active tasks: **{Topic.TotalTasks}**
+                🕐 Last synced: {Topic.LastSync}
+
+            # Show linked tasks
+            - kind: ConditionGroup
+              id: showLinked
+              conditions:
+                - id: hasLinked
+                  condition: =Topic.LinkedCount > 0
+                  actions:
+                    - kind: SendMessage
+                      id: linkedHeader
+                      message: "🔗 **LINKED TASKS** (tracked in both Planner & Notion)"
+
+                    - kind: ForEachAction
+                      id: loopLinked
+                      itemsSource: =Filter(Topic.LinkedTasks, isLinked = true)
+                      itemVariable: Topic.LinkedTask
+                      actions:
+                        - kind: SendMessage
+                          id: displayLinkedTask
+                          message: |
+                            ☐ **{Topic.LinkedTask.notionTitle}**
+                               Notion: {Topic.LinkedTask.notionStatus} | Planner: {Topic.LinkedTask.plannerTask.status}
+                               Due: {If(IsBlank(Topic.LinkedTask.notionDueDate), "No date", Topic.LinkedTask.notionDueDate)} | Priority: {Topic.LinkedTask.notionPriority}
+
+            # Show Planner-only tasks
+            - kind: ConditionGroup
+              id: showPlannerOnly
+              conditions:
+                - id: hasPlannerOnly
+                  condition: =Topic.PlannerOnlyCount > 0
+                  actions:
+                    - kind: SendMessage
+                      id: plannerOnlyHeader
+                      message: "📋 **PLANNER ONLY** (not yet in Notion)"
+
+                    - kind: ForEachAction
+                      id: loopPlannerOnly
+                      itemsSource: =Topic.PlannerOnlyTasks
+                      itemVariable: Topic.PlannerTask
+                      actions:
+                        - kind: SendMessage
+                          id: displayPlannerTask
+                          message: "  ☐ {Topic.PlannerTask.title} — {Topic.PlannerTask.status} | Due: {If(IsBlank(Topic.PlannerTask.dueDate), 'No date', Topic.PlannerTask.dueDate)}"
+
+            # Show Notion-only tasks
+            - kind: ConditionGroup
+              id: showNotionOnly
+              conditions:
+                - id: hasNotionOnly
+                  condition: =Topic.NotionOnlyCount > 0
+                  actions:
+                    - kind: SendMessage
+                      id: notionOnlyHeader
+                      message: "📝 **NOTION ONLY** (not yet in Planner)"
+
+                    - kind: ForEachAction
+                      id: loopNotionOnly
+                      itemsSource: =Topic.NotionOnlyTasks
+                      itemVariable: Topic.NotionTask
+                      actions:
+                        - kind: SendMessage
+                          id: displayNotionTask
+                          message: "  ☐ {Topic.NotionTask.title} — {Topic.NotionTask.status} | Due: {If(IsBlank(Topic.NotionTask.dueDate), 'No date', Topic.NotionTask.dueDate)}"
+
+            - kind: SendMessage
+              id: overviewFooter
+              message: "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+            # Next action menu
+            - kind: Question
+              id: askNextAction
+              prompt: What would you like to do?
+              variable: init:Topic.NextAction
+              entity:
+                kind: EmbeddedEntity
+                definition:
+                  kind: ClosedListEntity
+                  items:
+                    - id: linkTask
+                      displayName: Link unlinked tasks together
+                    - id: createTask
+                      displayName: Create a new task in both platforms
+                    - id: syncTask
+                      displayName: Sync a task status across platforms
+                    - id: refresh
+                      displayName: Refresh project view
+                    - id: done
+                      displayName: Done
+
+            - kind: ConditionGroup
+              id: handleNextAction
+              conditions:
+                - id: linkTaskAction
+                  condition: =Topic.NextAction = 'linkTask'
+                  actions:
+                    - kind: BeginDialog
+                      id: gotoLinkTasks
+                      dialog: link-tasks
+
+                - id: createTaskAction
+                  condition: =Topic.NextAction = 'createTask'
+                  actions:
+                    - kind: BeginDialog
+                      id: gotoCreateTask
+                      dialog: create-task
+
+                - id: syncTaskAction
+                  condition: =Topic.NextAction = 'syncTask'
+                  actions:
+                    - kind: Question
+                      id: askSyncTaskId
+                      prompt: Enter the task ID and which platform it came from (e.g. "notion:abc123" or "planner:def456"):
+                      variable: init:Topic.SyncInput
+                      entity:
+                        kind: EmbeddedEntity
+                        definition:
+                          kind: StringEntity
+
+                    - kind: Question
+                      id: askNewStatus
+                      prompt: What is the new status?
+                      variable: init:Topic.SyncStatus
+                      entity:
+                        kind: EmbeddedEntity
+                        definition:
+                          kind: ClosedListEntity
+                          items:
+                            - id: notStarted
+                              displayName: Not Started
+                            - id: inProgress
+                              displayName: In Progress
+                            - id: completed
+                              displayName: Completed
+
+                    - kind: InvokeFlowAction
+                      id: syncTask
+                      flowId: sync-task-cross-platform
+                      input:
+                        binding:
+                          sourceTaskId: =Mid(Topic.SyncInput, Find(":", Topic.SyncInput) + 1)
+                          sourcePlatform: =If(StartsWith(Lower(Topic.SyncInput), "notion"), "Notion", "Planner")
+                          newStatus: =Topic.SyncStatus
+                      output:
+                        binding:
+                          success: Topic.SyncSuccess
+                          errorMessage: Topic.SyncError
+                          targetPlatform: Topic.SyncTargetPlatform
+
+                    - kind: ConditionGroup
+                      id: showSyncResult
+                      conditions:
+                        - id: syncOk
+                          condition: =Topic.SyncSuccess = true
+                          actions:
+                            - kind: SendMessage
+                              id: syncSuccessMsg
+                              message: "✅ Task status synced to **{Topic.SyncTargetPlatform}** successfully!"
+
+                        - id: syncFailed
+                          condition: =Topic.SyncSuccess = false
+                          actions:
+                            - kind: SendMessage
+                              id: syncErrorMsg
+                              message: "⚠️ Sync failed: {Topic.SyncError}"
+
+                - id: refreshAction
+                  condition: =Topic.NextAction = 'refresh'
+                  actions:
+                    - kind: GotoAction
+                      id: refreshOverview
+                      actionId: fetchingMsg
+
+        - id: noTasks
+          condition: =Topic.TotalTasks = 0
+          actions:
+            - kind: SendMessage
+              id: noTasksMsg
+              message: |
+                🎉 **{Topic.ProjectName}** has no active tasks!
+
+                Would you like to create one?
+
+            - kind: Question
+              id: askCreateFirst
+              prompt: Create a new task?
+              variable: init:Topic.CreateChoice
+              entity:
+                kind: EmbeddedEntity
+                definition:
+                  kind: BooleanEntity
+
+            - kind: ConditionGroup
+              id: handleCreateFirst
+              conditions:
+                - id: createYes
+                  condition: =Topic.CreateChoice = true
+                  actions:
+                    - kind: BeginDialog
+                      id: gotoCreate
+                      dialog: create-task
+
+outputParameters:
+  - name: selectedProjectName
+    type: Text
+    description: Name of the project that was viewed
+  - name: totalTasks
+    type: Number
+    description: Total number of active tasks in the project

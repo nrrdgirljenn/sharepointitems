@@ -43,6 +43,18 @@
       "groupBySource": true,
       "dailyResetTime": "00:00",
       "timezone": "UTC"
+    },
+    "projectTracker": {
+      "enabled": true,
+      "crossPlatformLinking": {
+        "notionPlannerIdProperty": "Planner Task ID",
+        "notionPlanIdProperty": "Planner Plan ID",
+        "plannerNotionIdInNotes": true,
+        "notionIdPrefix": "Notion Page ID: ",
+        "notionDbIdPrefix": "Notion Database ID: "
+      },
+      "autoSyncOnStatusChange": false,
+      "projectMappings": []
     }
   }
 }
