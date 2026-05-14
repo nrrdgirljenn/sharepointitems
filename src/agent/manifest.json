@@ -37,12 +37,14 @@
     "topics/get-planner-tasks.topic.yaml",
     "topics/build-daily-checklist.topic.yaml",
     "topics/manage-checklist.topic.yaml",
-    "topics/sync-status.topic.yaml"
+    "topics/sync-status.topic.yaml",
+    "topics/copy-planner-to-notion.topic.yaml"
   ],
   "flows": [
     "flows/fetch-notion-tasks.flow.json",
     "flows/fetch-planner-tasks.flow.json",
-    "flows/update-task-status.flow.json"
+    "flows/update-task-status.flow.json",
+    "flows/copy-planner-to-notion.flow.json"
   ],
   "knowledgeSources": [],
   "triggers": {

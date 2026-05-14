@@ -1,0 +1,352 @@
+{
+  "definition": {
+    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+    "contentVersion": "1.0.0.0",
+    "metadata": {
+      "flowId": "copy-planner-to-notion",
+      "displayName": "Copy Planner Private Tasks to Notion Inbox",
+      "description": "Copies active tasks from a Planner bucket (default: Private Tasks) into a Notion Task Inbox database",
+      "author": "Daily Project Checklist Agent",
+      "version": "1.0.0"
+    },
+    "parameters": {
+      "notionConnection": {
+        "type": "string",
+        "defaultValue": "notion-connection"
+      },
+      "plannerConnection": {
+        "type": "string",
+        "defaultValue": "planner-connection"
+      }
+    },
+    "triggers": {
+      "manual": {
+        "type": "Request",
+        "kind": "PowerVirtualAgents",
+        "inputs": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "planId": {
+                "type": "string",
+                "description": "Planner plan ID that contains the source bucket"
+              },
+              "notionInboxDatabaseId": {
+                "type": "string",
+                "description": "Notion database ID for the Task Inbox"
+              },
+              "bucketName": {
+                "type": "string",
+                "description": "Name of the Planner bucket to copy from",
+                "default": "Private Tasks"
+              }
+            },
+            "required": ["planId", "notionInboxDatabaseId"]
+          }
+        }
+      }
+    },
+    "actions": {
+      "Initialize_Variables": {
+        "type": "InitializeVariable",
+        "inputs": {
+          "variables": [
+            {
+              "name": "copiedCount",
+              "type": "integer",
+              "value": 0
+            },
+            {
+              "name": "errorCount",
+              "type": "integer",
+              "value": 0
+            },
+            {
+              "name": "privateBucketId",
+              "type": "string",
+              "value": ""
+            },
+            {
+              "name": "copiedTasks",
+              "type": "array",
+              "value": []
+            }
+          ]
+        },
+        "runAfter": {}
+      },
+      "Get_Plan_Buckets": {
+        "type": "Http",
+        "inputs": {
+          "method": "GET",
+          "uri": "https://graph.microsoft.com/v1.0/planner/plans/@{triggerBody()?['planId']}/buckets",
+          "authentication": {
+            "type": "ManagedServiceIdentity",
+            "audience": "https://graph.microsoft.com"
+          }
+        },
+        "runAfter": {
+          "Initialize_Variables": ["Succeeded"]
+        }
+      },
+      "Find_Target_Bucket": {
+        "type": "Query",
+        "inputs": {
+          "from": "@body('Get_Plan_Buckets')?['value']",
+          "where": "@equals(item()?['name'], coalesce(triggerBody()?['bucketName'], 'Private Tasks'))"
+        },
+        "runAfter": {
+          "Get_Plan_Buckets": ["Succeeded"]
+        }
+      },
+      "Condition_Bucket_Found": {
+        "type": "If",
+        "expression": {
+          "and": [
+            {
+              "greater": ["@length(body('Find_Target_Bucket'))", 0]
+            }
+          ]
+        },
+        "actions": {
+          "Set_Bucket_Id": {
+            "type": "SetVariable",
+            "inputs": {
+              "name": "privateBucketId",
+              "value": "@first(body('Find_Target_Bucket'))?['id']"
+            }
+          },
+          "Get_Bucket_Tasks": {
+            "type": "Http",
+            "inputs": {
+              "method": "GET",
+              "uri": "https://graph.microsoft.com/v1.0/planner/buckets/@{variables('privateBucketId')}/tasks",
+              "authentication": {
+                "type": "ManagedServiceIdentity",
+                "audience": "https://graph.microsoft.com"
+              }
+            },
+            "runAfter": {
+              "Set_Bucket_Id": ["Succeeded"]
+            }
+          },
+          "Filter_Active_Tasks": {
+            "type": "Query",
+            "inputs": {
+              "from": "@body('Get_Bucket_Tasks')?['value']",
+              "where": "@less(item()?['percentComplete'], 100)"
+            },
+            "runAfter": {
+              "Get_Bucket_Tasks": ["Succeeded"]
+            }
+          },
+          "Copy_Tasks_To_Notion": {
+            "type": "Foreach",
+            "foreach": "@body('Filter_Active_Tasks')",
+            "actions": {
+              "Map_Priority_To_Notion": {
+                "type": "Compose",
+                "inputs": "@{if(lessOrEquals(item()?['priority'], 1), 'High', if(lessOrEquals(item()?['priority'], 3), 'High', if(lessOrEquals(item()?['priority'], 5), 'Medium', 'Low')))}"
+              },
+              "Build_Notion_Page_Body": {
+                "type": "Compose",
+                "inputs": {
+                  "parent": {
+                    "database_id": "@{triggerBody()?['notionInboxDatabaseId']}"
+                  },
+                  "properties": {
+                    "Name": {
+                      "title": [
+                        {
+                          "text": {
+                            "content": "@{item()?['title']}"
+                          }
+                        }
+                      ]
+                    },
+                    "Status": {
+                      "status": {
+                        "name": "Not started"
+                      }
+                    },
+                    "Priority": {
+                      "select": {
+                        "name": "@{outputs('Map_Priority_To_Notion')}"
+                      }
+                    },
+                    "Source": {
+                      "rich_text": [
+                        {
+                          "text": {
+                            "content": "Planner - @{coalesce(triggerBody()?['bucketName'], 'Private Tasks')}"
+                          }
+                        }
+                      ]
+                    }
+                  }
+                },
+                "runAfter": {
+                  "Map_Priority_To_Notion": ["Succeeded"]
+                }
+              },
+              "Condition_Has_Due_Date": {
+                "type": "If",
+                "expression": {
+                  "and": [
+                    {
+                      "not": {
+                        "equals": ["@item()?['dueDateTime']", null]
+                      }
+                    },
+                    {
+                      "not": {
+                        "equals": ["@item()?['dueDateTime']", ""]
+                      }
+                    }
+                  ]
+                },
+                "actions": {
+                  "Add_Due_Date_Property": {
+                    "type": "Compose",
+                    "inputs": "@setProperty(outputs('Build_Notion_Page_Body'), 'properties', setProperty(outputs('Build_Notion_Page_Body')?['properties'], 'Due Date', json(concat('{\"date\": {\"start\": \"', formatDateTime(item()?['dueDateTime'], 'yyyy-MM-dd'), '\"}}' ))))"
+                  }
+                },
+                "runAfter": {
+                  "Build_Notion_Page_Body": ["Succeeded"]
+                }
+              },
+              "Create_Notion_Page": {
+                "type": "Http",
+                "inputs": {
+                  "method": "POST",
+                  "uri": "https://api.notion.com/v1/pages",
+                  "headers": {
+                    "Authorization": "Bearer @{parameters('notionApiKey')}",
+                    "Notion-Version": "2022-06-28",
+                    "Content-Type": "application/json"
+                  },
+                  "body": "@coalesce(outputs('Add_Due_Date_Property'), outputs('Build_Notion_Page_Body'))"
+                },
+                "runAfter": {
+                  "Condition_Has_Due_Date": ["Succeeded"]
+                }
+              },
+              "Increment_Copied_Count": {
+                "type": "IncrementVariable",
+                "inputs": {
+                  "name": "copiedCount",
+                  "value": 1
+                },
+                "runAfter": {
+                  "Create_Notion_Page": ["Succeeded"]
+                }
+              },
+              "Append_To_Copied_Tasks": {
+                "type": "AppendToArrayVariable",
+                "inputs": {
+                  "name": "copiedTasks",
+                  "value": {
+                    "plannerId": "@item()?['id']",
+                    "title": "@item()?['title']",
+                    "priority": "@outputs('Map_Priority_To_Notion')",
+                    "notionPageId": "@body('Create_Notion_Page')?['id']",
+                    "notionUrl": "@body('Create_Notion_Page')?['url']"
+                  }
+                },
+                "runAfter": {
+                  "Increment_Copied_Count": ["Succeeded"]
+                }
+              },
+              "Increment_Error_Count": {
+                "type": "IncrementVariable",
+                "inputs": {
+                  "name": "errorCount",
+                  "value": 1
+                },
+                "runAfter": {
+                  "Create_Notion_Page": ["Failed"]
+                }
+              }
+            },
+            "runAfter": {
+              "Filter_Active_Tasks": ["Succeeded"]
+            }
+          }
+        },
+        "else": {
+          "actions": {
+            "Compose_Bucket_Not_Found_Error": {
+              "type": "Compose",
+              "inputs": "Bucket '@{coalesce(triggerBody()?['bucketName'], 'Private Tasks')}' was not found in the specified Planner plan. Please check that the bucket exists and that the plan ID is correct."
+            }
+          }
+        },
+        "runAfter": {
+          "Find_Target_Bucket": ["Succeeded"]
+        }
+      },
+      "Success_Response": {
+        "type": "Response",
+        "kind": "PowerVirtualAgents",
+        "inputs": {
+          "statusCode": 200,
+          "body": {
+            "copiedTasks": "@variables('copiedTasks')",
+            "copiedCount": "@variables('copiedCount')",
+            "errorCount": "@variables('errorCount')",
+            "bucketFound": "@greater(length(body('Find_Target_Bucket')), 0)",
+            "errorMessage": "@{if(greater(length(body('Find_Target_Bucket')), 0), '', outputs('Compose_Bucket_Not_Found_Error'))}",
+            "completedAt": "@utcNow()"
+          }
+        },
+        "runAfter": {
+          "Condition_Bucket_Found": ["Succeeded", "Failed"]
+        }
+      },
+      "Error_Response": {
+        "type": "Response",
+        "kind": "PowerVirtualAgents",
+        "inputs": {
+          "statusCode": 200,
+          "body": {
+            "copiedTasks": [],
+            "copiedCount": 0,
+            "errorCount": 0,
+            "bucketFound": false,
+            "errorMessage": "Failed to retrieve buckets from Planner. Please check your connection and plan ID.",
+            "completedAt": null
+          }
+        },
+        "runAfter": {
+          "Get_Plan_Buckets": ["Failed", "TimedOut"]
+        }
+      }
+    },
+    "outputs": {
+      "copiedTasks": {
+        "type": "array",
+        "description": "Array of tasks that were successfully copied, each with plannerId, title, priority, notionPageId, and notionUrl"
+      },
+      "copiedCount": {
+        "type": "integer",
+        "description": "Number of tasks successfully copied to Notion"
+      },
+      "errorCount": {
+        "type": "integer",
+        "description": "Number of tasks that failed to copy"
+      },
+      "bucketFound": {
+        "type": "boolean",
+        "description": "Whether the target Planner bucket was found"
+      },
+      "errorMessage": {
+        "type": "string",
+        "description": "Error message if the bucket was not found or a connection error occurred"
+      },
+      "completedAt": {
+        "type": "string",
+        "description": "Timestamp when the copy operation completed"
+      }
+    }
+  }
+}

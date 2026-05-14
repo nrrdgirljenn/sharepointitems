@@ -1,0 +1,168 @@
+kind: AdaptiveDialog
+modelDescription: This topic copies active tasks from the Private Tasks bucket in Microsoft Planner into the Task Inbox database in Notion
+beginDialog:
+  kind: OnRecognizedIntent
+  id: main
+  intent:
+    triggerQueries:
+      - Copy Planner tasks to Notion
+      - Copy my private tasks to Notion
+      - Send Private Tasks to Notion inbox
+      - Sync Private Tasks to Notion
+      - Push Planner tasks to Notion
+      - Move tasks from Planner to Notion
+      - Copy tasks to Notion Task Inbox
+      - Planner to Notion sync
+
+  actions:
+    - kind: SendMessage
+      id: startMessage
+      message: "🔄 Copying active tasks from your Planner \"Private Tasks\" bucket to your Notion Task Inbox..."
+
+    - kind: InvokeFlowAction
+      id: callCopyFlow
+      flowId: copy-planner-to-notion
+      input:
+        binding:
+          planId: =System.User.PlannerPlanId
+          notionInboxDatabaseId: =System.User.NotionInboxDatabaseId
+          bucketName: "Private Tasks"
+      output:
+        binding:
+          copiedTasks: Topic.CopiedTasks
+          copiedCount: Topic.CopiedCount
+          errorCount: Topic.ErrorCount
+          bucketFound: Topic.BucketFound
+          errorMessage: Topic.ErrorMessage
+
+    - kind: ConditionGroup
+      id: checkResults
+      conditions:
+        - id: hasConnectionError
+          condition: =!IsBlank(Topic.ErrorMessage) && Topic.BucketFound = false && Topic.CopiedCount = 0
+          actions:
+            - kind: SendMessage
+              id: errorMsg
+              message: |
+                ⚠️ Something went wrong: {Topic.ErrorMessage}
+
+                Please make sure:
+                • You're signed in with your Microsoft 365 account
+                • The Planner plan ID is correctly configured (System.User.PlannerPlanId)
+                • A bucket named "Private Tasks" exists in that plan
+                • Your Notion connection and inbox database ID are set up correctly
+
+            - kind: Question
+              id: askRetry
+              prompt: Would you like to try again?
+              variable: init:Topic.RetryChoice
+              entity:
+                kind: EmbeddedEntity
+                definition:
+                  kind: BooleanEntity
+
+            - kind: ConditionGroup
+              id: handleRetry
+              conditions:
+                - id: retryYes
+                  condition: =Topic.RetryChoice = true
+                  actions:
+                    - kind: GotoAction
+                      id: retryFlow
+                      actionId: callCopyFlow
+
+        - id: noActiveTasks
+          condition: =Topic.BucketFound = true && Topic.CopiedCount = 0 && Topic.ErrorCount = 0
+          actions:
+            - kind: SendMessage
+              id: noTasksMsg
+              message: |
+                ✨ The "Private Tasks" bucket is empty (no active tasks) — nothing to copy to Notion!
+
+                Would you like to:
+                • View your Planner tasks to confirm
+                • View your Notion Task Inbox
+
+        - id: allFailed
+          condition: =Topic.CopiedCount = 0 && Topic.ErrorCount > 0
+          actions:
+            - kind: SendMessage
+              id: allFailedMsg
+              message: |
+                ⚠️ Found {Topic.ErrorCount} task(s) in "Private Tasks" but all failed to copy to Notion.
+
+                Please check:
+                • Your Notion API key is valid
+                • The Task Inbox database ID is correct (System.User.NotionInboxDatabaseId)
+                • The integration has access to the database
+
+        - id: tasksCopied
+          condition: =Topic.CopiedCount > 0
+          actions:
+            - kind: SendMessage
+              id: successHeader
+              message: "✅ Copied {Topic.CopiedCount} task{If(Topic.CopiedCount > 1, \"s\", \"\")} from Planner \"Private Tasks\" to your Notion Task Inbox!{If(Topic.ErrorCount > 0, \" (⚠️ \" & Topic.ErrorCount & \" failed)\", \"\")}"
+
+            - kind: ForEachAction
+              id: listCopiedTasks
+              itemsSource: =Topic.CopiedTasks
+              itemVariable: Topic.CopiedTask
+              actions:
+                - kind: SendMessage
+                  id: taskItem
+                  message: "  {If(Topic.CopiedTask.priority = \"High\", \"🔴\", If(Topic.CopiedTask.priority = \"Medium\", \"🟡\", \"🟢\"))} {Topic.CopiedTask.title}"
+
+            - kind: Question
+              id: askNextAction
+              prompt: What would you like to do next?
+              variable: init:Topic.NextAction
+              entity:
+                kind: EmbeddedEntity
+                definition:
+                  kind: ClosedListEntity
+                  items:
+                    - id: viewNotion
+                      displayName: View my Notion Task Inbox
+                    - id: viewPlanner
+                      displayName: View remaining Planner tasks
+                    - id: done
+                      displayName: I'm done
+
+            - kind: ConditionGroup
+              id: handleNextAction
+              conditions:
+                - id: viewNotionAction
+                  condition: =Topic.NextAction = 'viewNotion'
+                  actions:
+                    - kind: BeginDialog
+                      id: gotoNotion
+                      dialog: get-notion-tasks
+
+                - id: viewPlannerAction
+                  condition: =Topic.NextAction = 'viewPlanner'
+                  actions:
+                    - kind: BeginDialog
+                      id: gotoPlanner
+                      dialog: get-planner-tasks
+
+inputParameters:
+  - name: planId
+    type: String
+    description: Optional override for the Planner plan ID (defaults to System.User.PlannerPlanId)
+    required: false
+  - name: notionInboxDatabaseId
+    type: String
+    description: Optional override for the Notion Task Inbox database ID (defaults to System.User.NotionInboxDatabaseId)
+    required: false
+  - name: bucketName
+    type: String
+    description: Name of the Planner bucket to copy from (defaults to "Private Tasks")
+    required: false
+
+outputParameters:
+  - name: copiedCount
+    type: Number
+    description: Number of tasks successfully copied to Notion
+  - name: errorCount
+    type: Number
+    description: Number of tasks that failed to copy
