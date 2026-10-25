@@ -1,0 +1,10 @@
+{
+  "name": "team-room",
+  "version": "0.1.0",
+  "description": "A Team pane of messages to and from your other sessions, plus /standup to ask them all for an update",
+  "types": "./types/index.d.ts",
+  "author": {
+    "name": "nrrdgirljenn"
+  },
+  "license": "MIT"
+}
