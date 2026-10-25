@@ -114,6 +114,7 @@ export const register: Register = on => {
 
     return { text: 'Team pane opened.' }
   })
+    .catch(() => ({ text: 'team-room could not open the Team pane.' }))
 
   on('command.run', { command: 'team-standup' }, async $ => {
     await $.ui.open({ id: PANE, title: TITLE })
@@ -169,6 +170,7 @@ export const register: Register = on => {
       text: `Asked ${sent} of ${peers.length} sessions for a standup. Replies show in the Team pane.`,
     }
   })
+    .catch(() => ({ text: 'team-room could not run the standup.' }))
 
   // Outgoing: the model's own SendMessage calls. /standup logs its own.
   on('session.send', async ($, e, next) => {
