@@ -21,7 +21,7 @@ const LISTING = {
   ],
 }
 
-test('/standup asks each session and shows replies as they come', async ($, on) => {
+test('/team-standup asks each session and shows replies as they come', async ($, on) => {
   const sent: { to: string; text: string }[] = []
   on('clock.now', () => ({ value: Date.UTC(2026, 9, 25, 9, 30) }))
   on('command.register', () => ({ value: { command: 'x' } }))
@@ -36,7 +36,7 @@ test('/standup asks each session and shows replies as they come', async ($, on) 
 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await $.command.run({
-    command: 'standup',
+    command: 'team-standup',
     args: '',
     origin: { kind: 'composer' },
     presentation: { isFullscreen: true, columns: 120 },

@@ -6,6 +6,8 @@ import type { Standup, TeamMessage } from '../types'
 const PANE = 'team'
 const TITLE = 'Team'
 const ME = 'team-room'
+// /standup belongs to the engineering plugin, so this one is /team-standup.
+const STANDUP = 'team-standup'
 const KEEP = 500
 
 // $.state outlives a reload, so the pane's history survives one.
@@ -90,14 +92,19 @@ function log($: StateDollar, entry: Omit<TeamMessage, 'id'>) {
 export const register: Register = on => {
 
   on('session.start', async ($, e, next) => {
-    await $.command.register({
-      name: 'team',
-      description: 'Open the Team pane: messages to and from your other sessions',
-    })
-    await $.command.register({
-      name: 'standup',
-      description: "Ask each of your other sessions for a one-line update",
-    })
+    // Each on its own: a name another plugin holds is refused, and that
+    // must not cost the other command.
+    const commands = [
+      { name: 'team', description: 'Open the Team pane: messages to and from your other sessions' },
+      { name: STANDUP, description: 'Ask each of your other sessions for a one-line update' },
+    ]
+    for (const command of commands) {
+      try {
+        await $.command.register(command)
+      } catch (error) {
+        $.ui.toast(`team-room: /${command.name} not added: ${String(error)}`)
+      }
+    }
 
     return next(e)
   })
@@ -108,7 +115,7 @@ export const register: Register = on => {
     return { text: 'Team pane opened.' }
   })
 
-  on('command.run', { command: 'standup' }, async $ => {
+  on('command.run', { command: 'team-standup' }, async $ => {
     await $.ui.open({ id: PANE, title: TITLE })
 
     const listed = await $.tool.call({ tool: 'ListAgents' })
